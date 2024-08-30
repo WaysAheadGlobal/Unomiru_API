@@ -96,6 +96,7 @@ def send_email(recipient, subject, body):
     data = res.read()
     print(data.decode("utf-8"))
 
+# REGISTER API
 @app.route('/api/signup', methods=['POST'])
 def signup():
     data = request.json
@@ -121,10 +122,41 @@ def signup():
         cursor = conn.cursor()
 
         # Check if user already exists
-        cursor.execute("SELECT COUNT(1) FROM tbgl_User WHERE Mobile = ? OR Email = ?", (phone_number, email))
-        if cursor.fetchone()[0] > 0:
-            return jsonify({'status': 409, 'message': 'Phone number or email already exists'}), 409
+        cursor.execute("SELECT UserId, IsActive FROM tbgl_User WHERE Mobile = ? OR Email = ?", (phone_number, email))
+        user_record = cursor.fetchone()
         
+        if user_record:
+            user_id, is_active = user_record
+            if is_active == 0:
+                # User exists but is not verified, resend OTP
+                first_name, last_name = split_name(user_name)
+                otp = generate_otp()
+                hashed_otp = hash_otp(otp)
+                token = generate_jwt(user_id)  # Generate token here
+
+                # Update CreatedDate and send OTP
+                cursor.execute("""
+                    UPDATE tbgl_User 
+                    SET CreatedDate = GETDATE()
+                    WHERE UserId = ?
+                """, (user_id,))
+                
+                cursor.execute("""
+                    INSERT INTO tbgl_OTP_Login (UserId, OTP, app, Created_at, Updated_at, OtpVerified_at, JwtToken, TokenExpires_at, TokenIssued_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (user_id, hashed_otp, device_name, datetime.datetime.now(), datetime.datetime.now(), datetime.datetime.now() + datetime.timedelta(minutes=3), token, datetime.datetime.now() + datetime.timedelta(hours=1), datetime.datetime.now()))
+
+                conn.commit()
+
+                # Send OTP via email
+                email_subject = "Your OTP Code"
+                email_body = f"Dear {first_name},\n\nYour OTP code is {otp}. It is valid for 3 minutes.\n\nBest regards,\nUnoMiru"
+                send_email(email, email_subject, email_body)
+
+                return jsonify({'status': 200, 'message': 'Account exists but is not verified. OTP resent to email.', 'otp_sent_to': email, 'token': token, 'user_id': user_id})
+
+            return jsonify({'status': 409, 'message': 'Phone number or email already exists'}), 409
+
         # Split user_name into FirstName and LastName
         first_name, last_name = split_name(user_name)
         
@@ -177,7 +209,7 @@ def signup():
     finally:
         conn.close()
 
-
+#sign up otp verification
 @app.route('/api/verify-signup-otp', methods=['POST'])
 def verify_signup_otp():
     data = request.json
@@ -229,21 +261,34 @@ def verify_signup_otp():
         if datetime.datetime.now() > otp_verified_at:
             return jsonify({'status': 401, 'message': 'OTP expired'}), 401
 
-        # Mark OTP as verified
+        # Mark OTP as verified in tbgl_OTP_Login table
         cursor.execute("""
             UPDATE tbgl_OTP_Login
             SET OtpVerified_at = ?
             WHERE UserId = ? AND OTP = ?
         """, (datetime.datetime.now(), user_id, hashed_otp))
-        conn.commit()
 
-        return jsonify({'status': 200, 'message': 'OTP verified successfully'})
+        # Update IsActive and ModifiedDate in tbgl_User table
+        rows_affected = cursor.execute("""
+            UPDATE tbgl_User
+            SET IsActive = 1, ModifiedDate = datetime.datetime.now()
+            WHERE UserId = ?
+        """, (user_id,))
+
+        # Check if the update was successful
+        if cursor.rowcount == 0:
+            return jsonify({'status': 500, 'message': 'Failed to update user status'}), 500
+
+        conn.commit()  # Commit the transaction
+
+        return jsonify({'status': 200, 'message': 'OTP verified successfully and user is now active'})
 
     except Exception as e:
         print(f"Error during OTP verification: {e}")
         return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
     finally:
         conn.close()
+
 @app.route('/api/login', methods=['POST'])
 def login():
     data = request.json
@@ -263,9 +308,9 @@ def login():
     try:
         cursor = conn.cursor()
 
-        # Check if user exists by email
+        # Check if user exists by email and is active
         cursor.execute("""
-            SELECT UserId, Email 
+            SELECT UserId, Email, IsActive 
             FROM tbgl_User 
             WHERE Email = ?
         """, (email,))
@@ -275,7 +320,11 @@ def login():
         if not user:
             return jsonify({'status': 404, 'message': 'Email does not exist'}), 404
 
-        user_id, email = user
+        user_id, email, is_active = user
+
+        # Check if the user's account is active
+        if is_active == 0:
+            return jsonify({'status': 403, 'message': 'Account is not active. Please verify your email.'}), 403
 
         # Generate OTP and temporary token
         otp = generate_otp()
@@ -303,7 +352,7 @@ def login():
         return jsonify({
             'status': 200,
             'message': 'Login successful. OTP sent.',
-            'otp_sent_to': 'email',
+            'otp_sent_to': email,
             'token': token
         })
 
@@ -393,6 +442,88 @@ def verify_login_otp():
     finally:
         conn.close()
 
+
+def token_required(f):
+    def decorator(*args, **kwargs):
+        token = request.headers.get('Authorization')
+        if not token:
+            return jsonify({'status': 401, 'message': 'Token is missing'}), 401
+
+        try:
+            # Remove "Bearer " prefix if it exists
+            if token.startswith('Bearer '):
+                token = token[7:]
+
+            # Decode the token
+            payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+            request.user_id = payload.get('user_id')  # Set user ID in the request
+        except jwt.ExpiredSignatureError:
+            return jsonify({'status': 401, 'message': 'Token expired'}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({'status': 401, 'message': 'Invalid token'}), 401
+        
+        return f(*args, **kwargs)
+    return decorator
+
+@app.route('/api/all-discover', methods=['GET'])
+@token_required
+def get_tags():
+    try:
+        # Get the 'all' query parameter to determine if all tags should be shown
+        show_all = request.args.get('all', 'false').lower() == 'true'
+
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
+
+        cursor = conn.cursor()
+
+        # Adjust the SQL query for SQL Server
+        if show_all:
+            cursor.execute("""
+                SELECT TagId, TagName, Title, IconUrl, ImageURL, PageBGImageURL
+                FROM tbDS_Tags
+                WHERE IsActive = 1 AND IsDeleted = 0
+                ORDER BY SortOrder ASC
+            """)
+        else:
+            cursor.execute("""
+                SELECT TOP 9 TagId, TagName, Title, IconUrl, ImageURL, PageBGImageURL
+                FROM tbDS_Tags
+                WHERE IsActive = 1 AND IsDeleted = 0
+                ORDER BY SortOrder ASC
+            """)
+
+        tags = cursor.fetchall()
+        if not tags:
+            return jsonify({'status': 404, 'message': 'No tags found'}), 404
+
+        # Extract tag details from the fetched results
+        tag_list = [
+            {
+                'TagId': tag[0],
+                'TagName': tag[1],
+                'Title': tag[2],
+                'IconUrl': tag[3],
+                'ImageURL': tag[4],
+                'PageBGImageURL': tag[5]
+            }
+            for tag in tags
+        ]
+
+        return jsonify({
+            'status': 200,
+            'tags': tag_list,
+            'totalTags': len(tag_list),
+            'message': 'All tags retrieved' if show_all else 'First 9 tags retrieved'
+        })
+
+    except Exception as e:
+        print(f"Error retrieving tags: {e}")
+        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
+    finally:
+        if conn:
+            conn.close()
 
 if __name__ == '__main__':
     app.run(debug=True)
