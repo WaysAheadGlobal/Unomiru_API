@@ -209,7 +209,6 @@ def signup():
     finally:
         conn.close()
 
-#sign up otp verification
 @app.route('/api/verify-signup-otp', methods=['POST'])
 def verify_signup_otp():
     data = request.json
@@ -271,9 +270,9 @@ def verify_signup_otp():
         # Update IsActive and ModifiedDate in tbgl_User table
         rows_affected = cursor.execute("""
             UPDATE tbgl_User
-            SET IsActive = 1, ModifiedDate = datetime.datetime.now()
+            SET IsActive = 1, ModifiedDate = ?
             WHERE UserId = ?
-        """, (user_id,))
+        """, (datetime.datetime.now(), user_id))
 
         # Check if the update was successful
         if cursor.rowcount == 0:
@@ -288,7 +287,7 @@ def verify_signup_otp():
         return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
     finally:
         conn.close()
-
+        
 @app.route('/api/login', methods=['POST'])
 def login():
     data = request.json
