@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from functools import wraps
 import pyodbc
 import random
 import hashlib
@@ -11,6 +12,30 @@ app = Flask(__name__)
 
 # Secret key for JWT encoding/decoding
 SECRET_KEY = 'your_secret_key'
+
+def token_required(f):
+    @wraps(f)
+    def decorator(*args, **kwargs):
+        token = request.headers.get('Authorization')
+        if not token:
+            return jsonify({'status': 401, 'message': 'Token is missing'}), 401
+
+        try:
+            # Remove "Bearer " prefix if it exists
+            if token.startswith('Bearer '):
+                token = token[7:]
+
+            # Decode the token
+            payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+            request.user_id = payload.get('user_id')  # Set user ID in the request
+        except jwt.ExpiredSignatureError:
+            return jsonify({'status': 401, 'message': 'Token expired'}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({'status': 401, 'message': 'Invalid token'}), 401
+        
+        return f(*args, **kwargs)
+    return decorator
+
 
 # Database connection string
 db_connection_string = (
@@ -287,7 +312,7 @@ def verify_signup_otp():
         return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
     finally:
         conn.close()
-        
+
 @app.route('/api/login', methods=['POST'])
 def login():
     data = request.json
@@ -441,33 +466,13 @@ def verify_login_otp():
     finally:
         conn.close()
 
-
-def token_required(f):
-    def decorator(*args, **kwargs):
-        token = request.headers.get('Authorization')
-        if not token:
-            return jsonify({'status': 401, 'message': 'Token is missing'}), 401
-
-        try:
-            # Remove "Bearer " prefix if it exists
-            if token.startswith('Bearer '):
-                token = token[7:]
-
-            # Decode the token
-            payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
-            request.user_id = payload.get('user_id')  # Set user ID in the request
-        except jwt.ExpiredSignatureError:
-            return jsonify({'status': 401, 'message': 'Token expired'}), 401
-        except jwt.InvalidTokenError:
-            return jsonify({'status': 401, 'message': 'Invalid token'}), 401
-        
-        return f(*args, **kwargs)
-    return decorator
-
 @app.route('/api/all-discover', methods=['GET'])
 @token_required
 def get_tags():
     try:
+        # Get the user_id from the request (set by token_required decorator)
+        user_id = request.user_id
+
         # Get the 'all' query parameter to determine if all tags should be shown
         show_all = request.args.get('all', 'false').lower() == 'true'
 
@@ -476,6 +481,14 @@ def get_tags():
             return jsonify({'status': 500, 'message': 'Database connection error'}), 500
 
         cursor = conn.cursor()
+
+        # Get all user-selected tags
+        cursor.execute("""
+            SELECT TagId
+            FROM tbDS_User_Tags
+            WHERE UserId = ? AND IsActive = 1 AND IsDeleted = 0
+        """, (user_id,))
+        user_selected_tags = {row[0] for row in cursor.fetchall()}  # Use a set for quick lookup
 
         # Adjust the SQL query for SQL Server
         if show_all:
@@ -497,7 +510,7 @@ def get_tags():
         if not tags:
             return jsonify({'status': 404, 'message': 'No tags found'}), 404
 
-        # Extract tag details from the fetched results
+        # Extract tag details from the fetched results and check if they are selected by the user
         tag_list = [
             {
                 'TagId': tag[0],
@@ -505,7 +518,8 @@ def get_tags():
                 'Title': tag[2],
                 'IconUrl': tag[3],
                 'ImageURL': tag[4],
-                'PageBGImageURL': tag[5]
+                'PageBGImageURL': tag[5],
+                'Selected': tag[0] in user_selected_tags  # Mark as selected if in user's tags
             }
             for tag in tags
         ]
@@ -524,5 +538,88 @@ def get_tags():
         if conn:
             conn.close()
 
+# API route to get VR Discover Listing
+@app.route('/api/vr-discover-listing', methods=['GET'])
+@token_required  # Apply token validation to this route as well
+def vr_discover_listing():
+    try:
+        # Get the 'all' query parameter to determine if all properties should be shown
+        show_all = request.args.get('all', 'false').lower() == 'true'
+
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
+
+        cursor = conn.cursor()
+
+        # Adjust the SQL query based on the show_all flag
+        if show_all:
+            cursor.execute("""
+                SELECT [VR360ID], [CategoryID], [SubCategoryID], [Country], [State], 
+                       [City], [PropertyName], [PropertyDescription], [PropertyImageURL], 
+                       [CategoryTitle], [AvgPropertyRating], [ButtonTitle], [ButtonURL], 
+                       [PartofPackage], [SortOrder], [IsActive], [IsDeleted], 
+                       [CreatedDate], [ModifiedDate]
+                FROM [dbo].[tbDS_VR360]
+                WHERE IsActive = 1 AND IsDeleted = 0
+                ORDER BY SortOrder ASC
+            """)
+        else:
+            cursor.execute("""
+                SELECT TOP 10 [VR360ID], [CategoryID], [SubCategoryID], [Country], [State], 
+                              [City], [PropertyName], [PropertyDescription], [PropertyImageURL], 
+                              [CategoryTitle], [AvgPropertyRating], [ButtonTitle], [ButtonURL], 
+                              [PartofPackage], [SortOrder], [IsActive], [IsDeleted], 
+                              [CreatedDate], [ModifiedDate]
+                FROM [dbo].[tbDS_VR360]
+                WHERE IsActive = 1 AND IsDeleted = 0
+                ORDER BY SortOrder ASC
+            """)
+
+        properties = cursor.fetchall()
+        if not properties:
+            return jsonify({'status': 404, 'message': 'No properties found'}), 404
+
+        # Extract property details from the fetched results
+        property_list = [
+            {
+                'VR360ID': prop[0],
+                'CategoryID': prop[1],
+                'SubCategoryID': prop[2],
+                'Country': prop[3],
+                'State': prop[4],
+                'City': prop[5],
+                'PropertyName': prop[6],
+                'PropertyDescription': prop[7],
+                'PropertyImageURL': prop[8],
+                'CategoryTitle': prop[9],
+                'AvgPropertyRating': prop[10],
+                'ButtonTitle': prop[11],
+                'ButtonURL': prop[12],
+                'PartofPackage': prop[13],
+                'SortOrder': prop[14],
+                'IsActive': prop[15],
+                'IsDeleted': prop[16],
+                'CreatedDate': prop[17],
+                'ModifiedDate': prop[18]
+            }
+            for prop in properties
+        ]
+
+        return jsonify({
+            'status': 200,
+            'properties': property_list,
+            'totalProperties': len(property_list),
+            'message': 'All properties retrieved' if show_all else 'First 10 properties retrieved'
+        })
+
+    except Exception as e:
+        print(f"Error retrieving properties: {e}")
+        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
+    finally:
+        if conn:
+            conn.close()
+
 if __name__ == '__main__':
     app.run(debug=True)
+
