@@ -484,7 +484,7 @@ def get_tags():
 
         # Get all user-selected tags
         cursor.execute("""
-            SELECT TagId
+            SELECT TagIds
             FROM tbDS_User_Tags
             WHERE UserId = ? AND IsActive = 1 AND IsDeleted = 0
         """, (user_id,))
