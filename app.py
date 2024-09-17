@@ -620,6 +620,96 @@ def vr_discover_listing():
         if conn:
             conn.close()
 
+
+# Search API for VR360 using single search input for multiple columns
+@app.route('/api/vr360/search', methods=['POST'])
+@token_required
+def search_vr360():
+    try:
+        # Parse the JSON request body
+        data = request.get_json()
+
+        # Extract search input from the JSON body
+        search_input = data.get('search_input', None)
+
+        if not search_input:
+            return jsonify({'status': 400, 'message': 'Search input is required'}), 400
+
+        # Build the SQL query to search across multiple columns
+        query = """
+            SELECT [VR360ID], [CategoryID], [SubCategoryID], [Country], [State], [City], 
+                   [PropertyName], [PropertyDescription], [PropertyImageURL], [CategoryTitle],
+                   [AvgPropertyRating], [ButtonTitle], [ButtonURL], [PartofPackage], 
+                   [SortOrder], [IsActive], [IsDeleted], [CreatedDate], [ModifiedDate]
+            FROM [dbo].[tbDS_VR360]
+            WHERE IsActive = 1 AND IsDeleted = 0
+            AND (
+                [Country] LIKE ? OR
+                [State] LIKE ? OR
+                [City] LIKE ? OR
+                [PropertyName] LIKE ? OR
+                [CategoryTitle] LIKE ?
+            )
+            ORDER BY SortOrder ASC
+        """
+
+        # Wildcard the search input for partial matches
+        search_pattern = f'%{search_input}%'
+
+        # Connect to the database
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
+
+        cursor = conn.cursor()
+
+        # Execute the query with the search input used for multiple columns
+        cursor.execute(query, (search_pattern, search_pattern, search_pattern, search_pattern, search_pattern))
+        properties = cursor.fetchall()
+
+        if not properties:
+            return jsonify({'status': 404, 'message': 'No properties found'}), 404
+
+        # Convert the result to a list of dictionaries
+        property_list = [
+            {
+                'VR360ID': prop[0],
+                'CategoryID': prop[1],
+                'SubCategoryID': prop[2],
+                'Country': prop[3],
+                'State': prop[4],
+                'City': prop[5],
+                'PropertyName': prop[6],
+                'PropertyDescription': prop[7],
+                'PropertyImageURL': prop[8],
+                'CategoryTitle': prop[9],
+                'AvgPropertyRating': prop[10],
+                'ButtonTitle': prop[11],
+                'ButtonURL': prop[12],
+                'PartofPackage': prop[13],
+                'SortOrder': prop[14],
+                'IsActive': prop[15],
+                'IsDeleted': prop[16],
+                'CreatedDate': prop[17],
+                'ModifiedDate': prop[18]
+            }
+            for prop in properties
+        ]
+
+        return jsonify({
+            'status': 200,
+            'properties': property_list,
+            'totalProperties': len(property_list),
+            'message': f"{len(property_list)} properties found"
+        })
+
+    except Exception as e:
+        print(f"Error during property search: {e}")
+        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
+    finally:
+        if conn:
+            conn.close()
+
 if __name__ == '__main__':
     app.run(debug=True)
 
