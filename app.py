@@ -134,6 +134,9 @@ def signup():
     email = data.get('email', '').strip()
     country_code = data.get('country_code', '').strip()
     device_name = data.get('device_name', '').strip()
+    
+    # Get dynamic UserTypeId from request, default to 4 if not provided
+    user_type_id = data.get('user_type_id', 4)
 
     # Validate mandatory fields
     if not phone_number:
@@ -189,12 +192,12 @@ def signup():
         otp = generate_otp()
         hashed_otp = hash_otp(otp)
 
-        # Insert user into tbgl_User table and retrieve the UserId
+        # Insert user into tbgl_User table and retrieve the UserId, using the dynamic UserTypeId
         cursor.execute("""
             INSERT INTO tbgl_User (FirstName, LastName, Email, Mobile, UserTypeId, CountryCode, CreatedDate)
             OUTPUT INSERTED.UserId
             VALUES (?, ?, ?, ?, ?, ?, GETDATE())
-        """, (first_name, last_name, email, phone_number, 4, country_code))
+        """, (first_name, last_name, email, phone_number, user_type_id, country_code))
 
         user_id = cursor.fetchone()[0]  # Fetch the UserId directly from the OUTPUT clause
 
@@ -445,19 +448,20 @@ def verify_login_otp():
         """, (datetime.datetime.now(), user_id, hashed_otp))
         conn.commit()
 
-        # Fetch the permanent UID
-        cursor.execute("SELECT UserId FROM tbgl_User WHERE UserId = ?", (user_id,))
+        # Fetch the UserId and UserTypeId from tbgl_User table
+        cursor.execute("SELECT UserId, UserTypeId FROM tbgl_User WHERE UserId = ?", (user_id,))
         user = cursor.fetchone()
 
         if not user:
             return jsonify({'status': 500, 'message': 'User not found after verification'}), 500
 
-        uid = user[0]
+        uid, user_type_id = user  # Get both UserId and UserTypeId from the result
 
         return jsonify({
             'status': 200,
             'message': 'OTP verified successfully',
-            'uid': uid
+            'uid': uid,
+            'user_type_id': user_type_id  # Include UserTypeId in the response
         })
 
     except Exception as e:
