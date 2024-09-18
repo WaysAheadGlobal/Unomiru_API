@@ -7,9 +7,10 @@ import jwt
 import datetime
 import http.client
 from codecs import encode
+from flask_cors import CORS 
 
 app = Flask(__name__)
-
+CORS(app)
 # Secret key for JWT encoding/decoding
 SECRET_KEY = 'your_secret_key'
 
