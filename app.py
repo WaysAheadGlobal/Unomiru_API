@@ -558,6 +558,9 @@ def customize_discover():
         if not isinstance(tag_ids, list):
             return jsonify({'status': 400, 'message': 'Tags should be a list of tag IDs'}), 400
 
+        # Convert the list of tag IDs to a comma-separated string
+        tag_ids_str = ','.join(map(str, tag_ids))
+
         conn = get_db_connection()
         if not conn:
             return jsonify({'status': 500, 'message': 'Database connection error'}), 500
@@ -566,26 +569,25 @@ def customize_discover():
 
         # Check if the user already has tags selected
         cursor.execute("""
-            SELECT TagId
+            SELECT UserTagId, TagIds
             FROM tbDS_User_Tags
             WHERE UserId = ? AND IsActive = 1 AND IsDeleted = 0
         """, (user_id,))
-        existing_tags = cursor.fetchall()
+        existing_tags = cursor.fetchone()
 
         if existing_tags:
-            # If user exists, update the tags and ModifiedDate
+            # If user exists, update the TagIds and ModifiedDate
             cursor.execute("""
                 UPDATE tbDS_User_Tags
-                SET IsActive = 0, IsDeleted = 1, ModifiedDate = ?
+                SET TagIds = ?, ModifiedDate = ?, IsActive = 1, IsDeleted = 0
                 WHERE UserId = ?
-            """, (datetime.datetime.now(), user_id))
-        
-        # Insert new tags into the tbDS_User_Tags table
-        for tag_id in tag_ids:
+            """, (tag_ids_str, datetime.datetime.now(), user_id))
+        else:
+            # If no existing tags, insert new row
             cursor.execute("""
-                INSERT INTO tbDS_User_Tags (UserId, TagId, IsActive, IsDeleted, CreatedDate)
+                INSERT INTO tbDS_User_Tags (UserId, TagIds, IsActive, IsDeleted, CreatedDate)
                 VALUES (?, ?, 1, 0, ?)
-            """, (user_id, tag_id, datetime.datetime.now()))
+            """, (user_id, tag_ids_str, datetime.datetime.now()))
 
         conn.commit()  # Commit the transaction
 
@@ -593,10 +595,11 @@ def customize_discover():
         cursor.execute("""
             SELECT TagId, TagName, Title, IconUrl, ImageURL, PageBGImageURL
             FROM tbDS_Tags
-            WHERE TagId IN (?) AND IsActive = 1 AND IsDeleted = 0
-        """, (",".join(map(str, tag_ids)),))
+            WHERE TagId IN ({}) AND IsActive = 1 AND IsDeleted = 0
+        """.format(','.join(['?'] * len(tag_ids))), tag_ids)
         selected_tags = cursor.fetchall()
 
+        # Prepare the response list with selected tags
         tag_list = [
             {
                 'TagId': tag[0],
@@ -794,7 +797,7 @@ def search_vr360():
         if conn:
             conn.close()
 
-            
+
 # API route to get VR Discover Listing for guest access
 @app.route('/api/guest-vr-discover-listing', methods=['GET'])
 def guest_vr_discover_listing():
