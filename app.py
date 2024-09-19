@@ -64,7 +64,7 @@ def generate_otp():
     return str(random.randint(100000, 999999))
 
 # Generate JWT token
-def generate_jwt(user_id, expires_delta=datetime.timedelta(hours=1)):
+def generate_jwt(user_id, expires_delta=datetime.timedelta(days=20)):
     payload = {
         'user_id': user_id,  # Ensure user_id is used, not email
         'exp': datetime.datetime.now() + expires_delta
@@ -542,6 +542,86 @@ def get_tags():
         if conn:
             conn.close()
 
+@app.route('/api/customize-discover', methods=['POST'])
+@token_required
+def customize_discover():
+    try:
+        # Get the user_id from the request (set by token_required decorator)
+        user_id = request.user_id
+
+        # Parse the JSON body to get the tag IDs
+        data = request.json
+        if not data or 'tags' not in data:
+            return jsonify({'status': 400, 'message': 'Tags data is missing'}), 400
+
+        tag_ids = data['tags']  # Expecting a list of tag IDs
+        if not isinstance(tag_ids, list):
+            return jsonify({'status': 400, 'message': 'Tags should be a list of tag IDs'}), 400
+
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
+
+        cursor = conn.cursor()
+
+        # Check if the user already has tags selected
+        cursor.execute("""
+            SELECT TagId
+            FROM tbDS_User_Tags
+            WHERE UserId = ? AND IsActive = 1 AND IsDeleted = 0
+        """, (user_id,))
+        existing_tags = cursor.fetchall()
+
+        if existing_tags:
+            # If user exists, update the tags and ModifiedDate
+            cursor.execute("""
+                UPDATE tbDS_User_Tags
+                SET IsActive = 0, IsDeleted = 1, ModifiedDate = ?
+                WHERE UserId = ?
+            """, (datetime.datetime.now(), user_id))
+        
+        # Insert new tags into the tbDS_User_Tags table
+        for tag_id in tag_ids:
+            cursor.execute("""
+                INSERT INTO tbDS_User_Tags (UserId, TagId, IsActive, IsDeleted, CreatedDate)
+                VALUES (?, ?, 1, 0, ?)
+            """, (user_id, tag_id, datetime.datetime.now()))
+
+        conn.commit()  # Commit the transaction
+
+        # Return the newly selected tags for the user
+        cursor.execute("""
+            SELECT TagId, TagName, Title, IconUrl, ImageURL, PageBGImageURL
+            FROM tbDS_Tags
+            WHERE TagId IN (?) AND IsActive = 1 AND IsDeleted = 0
+        """, (",".join(map(str, tag_ids)),))
+        selected_tags = cursor.fetchall()
+
+        tag_list = [
+            {
+                'TagId': tag[0],
+                'TagName': tag[1],
+                'Title': tag[2],
+                'IconUrl': tag[3],
+                'ImageURL': tag[4],
+                'PageBGImageURL': tag[5]
+            }
+            for tag in selected_tags
+        ]
+
+        return jsonify({
+            'status': 200,
+            'message': 'User tags updated successfully',
+            'selectedTags': tag_list
+        })
+
+    except Exception as e:
+        print(f"Error during add or update user tags: {e}")
+        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
+    finally:
+        if conn:
+            conn.close()
+
 # API route to get VR Discover Listing
 @app.route('/api/vr-discover-listing', methods=['GET'])
 @token_required  # Apply token validation to this route as well
@@ -709,6 +789,90 @@ def search_vr360():
 
     except Exception as e:
         print(f"Error during property search: {e}")
+        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
+    finally:
+        if conn:
+            conn.close()
+
+            
+# API route to get VR Discover Listing for guest access
+@app.route('/api/guest-vr-discover-listing', methods=['GET'])
+def guest_vr_discover_listing():
+    try:
+        # Get the 'all' query parameter to determine if all properties should be shown
+        show_all = request.args.get('all', 'false').lower() == 'true'
+
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
+
+        cursor = conn.cursor()
+
+        # Adjust the SQL query based on the show_all flag
+        if show_all:
+            cursor.execute("""
+                SELECT [VR360ID], [CategoryID], [SubCategoryID], [Country], [State], 
+                       [City], [PropertyName], [PropertyDescription], [PropertyImageURL], 
+                       [CategoryTitle], [AvgPropertyRating], [ButtonTitle], [ButtonURL], 
+                       [PartofPackage], [SortOrder], [IsActive], [IsDeleted], 
+                       [IsPermission], [CreatedDate], [ModifiedDate]
+                FROM [dbo].[tbDS_VR360]
+                WHERE IsActive = 1 AND IsDeleted = 0
+                ORDER BY SortOrder ASC
+            """)
+        else:
+            cursor.execute("""
+                SELECT TOP 10 [VR360ID], [CategoryID], [SubCategoryID], [Country], [State], 
+                              [City], [PropertyName], [PropertyDescription], [PropertyImageURL], 
+                              [CategoryTitle], [AvgPropertyRating], [ButtonTitle], [ButtonURL], 
+                              [PartofPackage], [SortOrder], [IsActive], [IsDeleted], 
+                              [IsPermission], [CreatedDate], [ModifiedDate]
+                FROM [dbo].[tbDS_VR360]
+                WHERE IsActive = 1 AND IsDeleted = 0
+                ORDER BY SortOrder ASC
+            """)
+
+        properties = cursor.fetchall()
+        if not properties:
+            return jsonify({'status': 404, 'message': 'No properties found'}), 404
+
+        # Extract property details from the fetched results
+        property_list = [
+            {
+                'VR360ID': prop[0],
+                'CategoryID': prop[1],
+                'SubCategoryID': prop[2],
+                'Country': prop[3],
+                'State': prop[4],
+                'City': prop[5],
+                'PropertyName': prop[6],
+                'PropertyDescription': prop[7],
+                'PropertyImageURL': prop[8],
+                'CategoryTitle': prop[9],
+                'AvgPropertyRating': prop[10],
+                'ButtonTitle': prop[11],
+                'ButtonURL': prop[12],
+                'PartofPackage': prop[13],
+                'SortOrder': prop[14],
+                'IsActive': prop[15],
+                'IsDeleted': prop[16],
+                'IsPermission': prop[17],  # Determines if the 360 video is allowed
+                'CanView360': prop[17] == 1,  # True if permission is granted
+                'CreatedDate': prop[18],
+                'ModifiedDate': prop[19]
+            }
+            for prop in properties
+        ]
+
+        return jsonify({
+            'status': 200,
+            'properties': property_list,
+            'totalProperties': len(property_list),
+            'message': 'All properties retrieved' if show_all else 'First 10 properties retrieved'
+        })
+
+    except Exception as e:
+        print(f"Error retrieving properties: {e}")
         return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
     finally:
         if conn:
