@@ -707,6 +707,69 @@ def vr_discover_listing():
         if conn:
             conn.close()
 
+# API route to get an individual VR360 listing by ID
+@app.route('/api/vr-discover-listing/<int:vr360_id>', methods=['GET'])
+@token_required  # Apply token validation to this route as well
+def get_vr360_listing(vr360_id):
+    try:
+        # Establish the database connection
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
+
+        cursor = conn.cursor()
+
+        # SQL query to fetch the VR360 details by ID
+        cursor.execute("""
+            SELECT [VR360ID], [CategoryID], [SubCategoryID], [Country], [State], 
+                   [City], [PropertyName], [PropertyDescription], [PropertyImageURL], 
+                   [CategoryTitle], [AvgPropertyRating], [ButtonTitle], [ButtonURL], 
+                   [PartofPackage], [SortOrder], [IsActive], [IsDeleted], 
+                   [CreatedDate], [ModifiedDate]
+            FROM [dbo].[tbDS_VR360]
+            WHERE VR360ID = ? AND IsActive = 1 AND IsDeleted = 0
+        """, (vr360_id,))
+
+        property = cursor.fetchone()
+        if not property:
+            return jsonify({'status': 404, 'message': f'Property with VR360ID {vr360_id} not found'}), 404
+
+        # Extract property details from the fetched result
+        property_data = {
+            'VR360ID': property[0],
+            'CategoryID': property[1],
+            'SubCategoryID': property[2],
+            'Country': property[3],
+            'State': property[4],
+            'City': property[5],
+            'PropertyName': property[6],
+            'PropertyDescription': property[7],
+            'PropertyImageURL': property[8],
+            'CategoryTitle': property[9],
+            'AvgPropertyRating': property[10],
+            'ButtonTitle': property[11],
+            'ButtonURL': property[12],
+            'PartofPackage': property[13],
+            'SortOrder': property[14],
+            'IsActive': property[15],
+            'IsDeleted': property[16],
+            'CreatedDate': property[17],
+            'ModifiedDate': property[18]
+        }
+
+        return jsonify({
+            'status': 200,
+            'property': property_data,
+            'message': f'Property with VR360ID {vr360_id} retrieved successfully'
+        })
+
+    except Exception as e:
+        print(f"Error retrieving property with VR360ID {vr360_id}: {e}")
+        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
+    finally:
+        if conn:
+            conn.close()
+
 
 # Search API for VR360 using single search input for multiple columns
 @app.route('/api/vr360/search', methods=['POST'])
