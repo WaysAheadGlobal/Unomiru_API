@@ -926,7 +926,6 @@ def submit_review_comment(user_id, vr360_id):
             conn.close()
 
 @app.route('/api/vr-reviews/<int:vr360_id>', methods=['GET'])
-
 def get_reviews(vr360_id):
     try:
         # Establish the database connection
@@ -987,6 +986,62 @@ def get_reviews(vr360_id):
         if conn:
             conn.close()
 
+# Add route for managing wishlist
+@app.route('/api/wishlist/<int:vr360_id>', methods=['POST'])
+@token_required
+def toggle_wishlist(user_id, vr360_id):
+    try:
+        # Establish the database connection
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
+
+        cursor = conn.cursor()
+
+        # Check if a wishlist entry exists for the user and VR360ID
+        cursor.execute("""
+            SELECT WishlistID, IsDeleted 
+            FROM [UnomiruAppDB].[dbo].[tbDS_Wishlist] 
+            WHERE UserID = ? AND VR360ID = ?
+        """, (user_id, vr360_id))
+        
+        wishlist_entry = cursor.fetchone()
+
+        if wishlist_entry:
+            # Toggle the IsDeleted value: If 0, set to 1, and vice versa
+            new_is_deleted = 1 if wishlist_entry[1] == 0 else 0
+
+            # Update the existing wishlist entry
+            cursor.execute("""
+                UPDATE [UnomiruAppDB].[dbo].[tbDS_Wishlist]
+                SET IsDeleted = ?, CreatedDate = GETDATE()
+                WHERE WishlistID = ?
+            """, (new_is_deleted, wishlist_entry[0]))
+
+            message = "Removed from wishlist" if new_is_deleted == 1 else "Added to wishlist"
+        else:
+            # Insert a new wishlist entry
+            cursor.execute("""
+                INSERT INTO [UnomiruAppDB].[dbo].[tbDS_Wishlist] 
+                (UserID, VR360ID, CreatedDate, IsDeleted)
+                VALUES (?, ?, GETDATE(), 0)
+            """, (user_id, vr360_id))
+            message = "Added to wishlist"
+
+        conn.commit()
+
+        return jsonify({
+            'status': 200,
+            'message': message
+        }), 200
+
+    except Exception as e:
+        print(f"Error toggling wishlist for VR360ID {vr360_id}: {e}")
+        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
+    finally:
+        if conn:
+            conn.close()
+      
 # API route to get VR Discover Listing for guest access
 @app.route('/api/guest-vr-discover-listing', methods=['GET'])
 def guest_vr_discover_listing():
