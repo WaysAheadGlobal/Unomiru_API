@@ -1125,6 +1125,193 @@ def guest_vr_discover_listing():
         if conn:
             conn.close()
 
+# API route to submit an enquiry
+@app.route('/api/enquiries', methods=['POST'])
+def submit_enquiry():
+    conn = None  # Initialize conn to None
+    try:
+        data = request.get_json()
+
+        # Validate input fields
+        name = data.get('Name')
+        email = data.get('Email')
+        phone = data.get('Phone')
+        course_name = data.get('CourseName')
+        enquiry_message = data.get('EnquiryMessage')
+
+        if not email or not phone:
+            return jsonify({'status': 400, 'message': 'Email and Phone are required fields'}), 400
+
+        # Establish database connection
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
+
+        cursor = conn.cursor()
+
+        # Insert the new enquiry into the database
+        cursor.execute("""
+            INSERT INTO [dbo].[tbgl_V360courseEnquiries] 
+            ([Name], [Email], [Phone], [CourseName], [EnquiryMessage], [EnquiryDate], [Status], [IsDeleted]) 
+            VALUES (?, ?, ?, ?, ?, GETDATE(), 'Pending', 0)
+        """, (name, email, phone, course_name, enquiry_message))
+
+        conn.commit()
+
+        return jsonify({
+            'status': 201,
+            'message': 'Enquiry submitted successfully'
+        }), 201
+
+    except Exception as e:
+        print(f"Error submitting enquiry: {e}")
+        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
+    finally:
+        if conn:
+            conn.close()  # Ensure conn is closed only if it was successfully established
+
+    try:
+        data = request.get_json()
+
+        # Validate input fields
+        name = data.get('Name')
+        email = data.get('Email')
+        phone = data.get('Phone')
+        course_name = data.get('CourseName')
+       # enquiry_message = data.get('EnquiryMessage')
+
+        if not email or not phone:
+            return jsonify({'status': 400, 'message': 'Email and Phone are required fields'}), 400
+
+        # Establish database connection
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
+
+        cursor = conn.cursor()
+
+        # Insert the new enquiry into the database
+        cursor.execute("""
+            INSERT INTO [dbo].[tbgl_V360courseEnquiries] 
+            ([Name], [Email], [Phone], [CourseName], [EnquiryMessage], [EnquiryDate], [Status], [IsDeleted]) 
+            VALUES (?, ?, ?, ?, ?, GETDATE(), 'Pending', 0)
+        """, (name, email, phone, course_name, enquiry_message))
+
+        conn.commit()
+
+        return jsonify({
+            'status': 201,
+            'message': 'Enquiry submitted successfully'
+        }), 201
+
+    except Exception as e:
+        print(f"Error submitting enquiry: {e}")
+        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
+    finally:
+        if conn:
+            conn.close()
+
+# API route to retrieve all enquiries (protected by token)
+@app.route('/api/enquiries', methods=['GET'])
+@token_required
+def get_all_enquiries():
+    try:
+        # Establish database connection
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
+
+        cursor = conn.cursor()
+
+        # Fetch all non-deleted enquiries from the database
+        cursor.execute("""
+            SELECT [EnquiryID], [Name], [Email], [Phone], [CourseName], [EnquiryMessage], 
+                   [EnquiryDate], [Status] 
+            FROM [dbo].[tbgl_V360courseEnquiries]
+            WHERE [IsDeleted] = 0
+            ORDER BY [EnquiryDate] DESC
+        """)
+
+        enquiries = cursor.fetchall()
+
+        # Format the response data
+        enquiry_list = []
+        for enquiry in enquiries:
+            enquiry_list.append({
+                'EnquiryID': enquiry[0],
+                'Name': enquiry[1],
+                'Email': enquiry[2],
+                'Phone': enquiry[3],
+                'CourseName': enquiry[4],
+                'EnquiryMessage': enquiry[5],
+                'EnquiryDate': enquiry[6],
+                'Status': enquiry[7]
+            })
+
+        return jsonify({
+            'status': 200,
+            'enquiries': enquiry_list,
+            'message': 'Enquiries retrieved successfully'
+        })
+
+    except Exception as e:
+        print(f"Error retrieving enquiries: {e}")
+        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
+    finally:
+        if conn:
+            conn.close()
+
+# API route to retrieve an individual enquiry by ID
+@app.route('/api/enquiries/<int:enquiry_id>', methods=['GET'])
+@token_required
+def get_enquiry(enquiry_id):
+    try:
+        # Establish database connection
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
+
+        cursor = conn.cursor()
+
+        # Fetch the specific enquiry by ID
+        cursor.execute("""
+            SELECT [EnquiryID], [Name], [Email], [Phone], [CourseName], [EnquiryMessage], 
+                   [EnquiryDate], [Status]
+            FROM [dbo].[tbgl_V360courseEnquiries]
+            WHERE [EnquiryID] = ? AND [IsDeleted] = 0
+        """, (enquiry_id,))
+
+        enquiry = cursor.fetchone()
+
+        if not enquiry:
+            return jsonify({'status': 404, 'message': f'Enquiry with ID {enquiry_id} not found'}), 404
+
+        # Format the response
+        enquiry_data = {
+            'EnquiryID': enquiry[0],
+            'Name': enquiry[1],
+            'Email': enquiry[2],
+            'Phone': enquiry[3],
+            'CourseName': enquiry[4],
+            'EnquiryMessage': enquiry[5],
+            'EnquiryDate': enquiry[6],
+            'Status': enquiry[7]
+        }
+
+        return jsonify({
+            'status': 200,
+            'enquiry': enquiry_data,
+            'message': f'Enquiry with ID {enquiry_id} retrieved successfully'
+        })
+
+    except Exception as e:
+        print(f"Error retrieving enquiry with ID {enquiry_id}: {e}")
+        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
 if __name__ == '__main__':
     app.run(debug=True)
 
