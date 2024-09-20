@@ -17,25 +17,37 @@ def token_required(f):
     @wraps(f)
     def decorator(*args, **kwargs):
         token = request.headers.get('Authorization')
+
+        # Check if token exists
         if not token:
             return jsonify({'status': 401, 'message': 'Token is missing'}), 401
 
         try:
-            # Remove "Bearer " prefix if it exists
+            # Strip the "Bearer " prefix if it exists
             if token.startswith('Bearer '):
                 token = token[7:]
 
-            # Decode the token
+            # Decode the token and extract payload
             payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
-            request.user_id = payload.get('user_id')  # Set user ID in the request
+
+            # Extract user_id and add it to the request context
+            user_id = payload.get('user_id')
+
+            if not user_id:
+                return jsonify({'status': 401, 'message': 'User ID missing in token'}), 401
+
+            # Set user_id in the request or pass it to the wrapped function
+            request.user_id = user_id  # Optional: if needed globally in request context
+
         except jwt.ExpiredSignatureError:
-            return jsonify({'status': 401, 'message': 'Token expired'}), 401
+            return jsonify({'status': 401, 'message': 'Token has expired'}), 401
         except jwt.InvalidTokenError:
             return jsonify({'status': 401, 'message': 'Invalid token'}), 401
-        
-        return f(*args, **kwargs)
-    return decorator
 
+        # Pass the user_id to the wrapped function as an argument
+        return f(user_id, *args, **kwargs)
+
+    return decorator
 
 # Database connection string
 db_connection_string = (
@@ -472,11 +484,8 @@ def verify_login_otp():
 
 @app.route('/api/all-discover', methods=['GET'])
 @token_required
-def get_tags():
+def get_tags(user_id):  # Accept the user_id parameter
     try:
-        # Get the user_id from the request (set by token_required decorator)
-        user_id = request.user_id
-
         # Get the 'all' query parameter to determine if all tags should be shown
         show_all = request.args.get('all', 'false').lower() == 'true'
 
@@ -494,7 +503,7 @@ def get_tags():
         """, (user_id,))
         user_selected_tags = {row[0] for row in cursor.fetchall()}  # Use a set for quick lookup
 
-        # Adjust the SQL query for SQL Server
+        # Adjust the SQL query for SQL Server based on 'show_all' flag
         if show_all:
             cursor.execute("""
                 SELECT TagId, TagName, Title, IconUrl, ImageURL, PageBGImageURL
@@ -544,7 +553,7 @@ def get_tags():
 
 @app.route('/api/customize-discover', methods=['POST'])
 @token_required
-def customize_discover():
+def customize_discover(user_id):
     try:
         # Get the user_id from the request (set by token_required decorator)
         user_id = request.user_id
@@ -628,7 +637,7 @@ def customize_discover():
 # API route to get VR Discover Listing
 @app.route('/api/vr-discover-listing', methods=['GET'])
 @token_required  # Apply token validation to this route as well
-def vr_discover_listing():
+def vr_discover_listing(user_id):
     try:
         # Get the 'all' query parameter to determine if all properties should be shown
         show_all = request.args.get('all', 'false').lower() == 'true'
@@ -710,7 +719,7 @@ def vr_discover_listing():
 # API route to get an individual VR360 listing by ID
 @app.route('/api/vr-discover-listing/<int:vr360_id>', methods=['GET'])
 @token_required  # Apply token validation to this route as well
-def get_vr360_listing(vr360_id):
+def get_vr360_listing(user_id, vr360_id):
     try:
         # Establish the database connection
         conn = get_db_connection()
@@ -774,7 +783,7 @@ def get_vr360_listing(vr360_id):
 # Search API for VR360 using single search input for multiple columns
 @app.route('/api/vr360/search', methods=['POST'])
 @token_required
-def search_vr360():
+def search_vr360(user_id):
     try:
         # Parse the JSON request body
         data = request.get_json()
@@ -860,6 +869,123 @@ def search_vr360():
         if conn:
             conn.close()
 
+@app.route('/api/vr-review/<int:vr360_id>', methods=['POST'])
+@token_required
+def submit_review_comment(user_id, vr360_id):
+    try:
+        data = request.get_json()
+
+        # Ensure required fields are provided
+        rating = data.get('Rating')
+        review_text = data.get('ReviewText')
+
+        if rating is None or not review_text:
+            return jsonify({'status': 400, 'message': 'Rating and ReviewText are required'}), 400
+
+        # Establish the database connection
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
+
+        cursor = conn.cursor()
+
+        # Check if the user already submitted a review for this VR360ID
+        cursor.execute("""
+            SELECT ReviewID 
+            FROM [UnomiruAppDB].[dbo].[tbDS_RatingsReviews]
+            WHERE VR360ID = ? AND UserID = ? AND IsActive = 1 AND IsDeleted = 0
+        """, (vr360_id, user_id))
+        
+        existing_review = cursor.fetchone()
+
+        if existing_review:
+            return jsonify({
+                'status': 400,
+                'message': 'User has already submitted an active review for this VR360ID'
+            }), 400
+
+        # Insert the new review into the tbDS_RatingsReviews table
+        cursor.execute("""
+            INSERT INTO [UnomiruAppDB].[dbo].[tbDS_RatingsReviews] 
+            (VR360ID, UserID, Rating, ReviewText, IsActive, IsDeleted, CreatedDate)
+            VALUES (?, ?, ?, ?, 1, 0, GETDATE())
+        """, (vr360_id, user_id, rating, review_text))
+
+        conn.commit()
+
+        return jsonify({
+            'status': 201,
+            'message': f'Review successfully submitted for VR360ID {vr360_id}'
+        }), 201
+
+    except Exception as e:
+        print(f"Error submitting review for VR360ID {vr360_id}: {e}")
+        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
+    finally:
+        if conn:
+            conn.close()
+
+@app.route('/api/vr-reviews/<int:vr360_id>', methods=['GET'])
+
+def get_reviews(vr360_id):
+    try:
+        # Establish the database connection
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
+
+        cursor = conn.cursor()
+
+        # Adjusted SQL query to fetch all reviews for a specific VR360ID
+        cursor.execute("""
+            SELECT r.ReviewID, r.UserID, r.Rating, r.ReviewText, r.CreatedDate, u.Username
+            FROM [UnomiruAppDB].[dbo].[tbDS_RatingsReviews] r
+            JOIN [UnomiruAppDB].[dbo].[tbgl_User] u ON r.UserID = u.UserId
+            WHERE r.VR360ID = ? AND r.IsActive = 1 AND r.IsDeleted = 0
+            ORDER BY r.CreatedDate DESC
+        """, (vr360_id,))
+
+        reviews = cursor.fetchall()
+
+        # If no reviews found, return a 404
+        if not reviews:
+            return jsonify({'status': 404, 'message': f'No reviews found for VR360ID {vr360_id}'}), 404
+
+        # Build a list of reviews
+        reviews_data = [
+            {
+                'ReviewID': review[0],
+                'UserID': review[1],
+                'Rating': review[2],
+                'ReviewText': review[3],
+                'CreatedDate': review[4],
+                'Username': review[5]
+            }
+            for review in reviews
+        ]
+
+        # Calculate the average rating for this VR360ID
+        cursor.execute("""
+            SELECT AVG(Rating)
+            FROM [UnomiruAppDB].[dbo].[tbDS_RatingsReviews]
+            WHERE VR360ID = ? AND IsActive = 1 AND IsDeleted = 0
+        """, (vr360_id,))
+        avg_rating = cursor.fetchone()[0]
+
+        return jsonify({
+            'status': 200,
+            'reviews': reviews_data,
+            'average_rating': round(avg_rating, 2) if avg_rating is not None else 0,
+            'message': f'Reviews for VR360ID {vr360_id} retrieved successfully'
+        })
+
+    except Exception as e:
+        print(f"Error retrieving reviews for VR360ID {vr360_id}: {e}")
+        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
+
+    finally:
+        if conn:
+            conn.close()
 
 # API route to get VR Discover Listing for guest access
 @app.route('/api/guest-vr-discover-listing', methods=['GET'])
