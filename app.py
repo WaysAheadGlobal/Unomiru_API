@@ -1341,6 +1341,14 @@ def extract_info_from_card(image_path):
         company = re.search(company_pattern, text)
         designation = re.search(designation_pattern, text)
         address = re.search(address_pattern, text)
+        result = {
+            'name': name.group(0) if name else 'Not Found',
+            'email': email.group(0) if email else 'Not Found',
+            'phone': phone.group(0) if phone else 'Not Found',
+            'company': company.group(0) if company else 'Not Found',
+            'designation': designation.group(0) if designation else 'Not Found',
+            'address': address.group(0) if address else 'Not Found'
+        }
         return result
     except Exception as e:
         return {"error": str(e)}
