@@ -1323,21 +1323,24 @@ def get_enquiry(enquiry_id):
         if conn:
             conn.close()
 
+#Oppertunity API Part starts here
 def extract_info_from_card(image_path):
     try:
-        pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'
         img = Image.open(image_path)
+        pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'
         text = pytesseract.image_to_string(img)
         name_pattern = r'\b[A-Z][a-z]*\s[A-Z][a-z]+(?:\s[A-Z][a-z]+)?\b'
         email_pattern = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
         phone_pattern = r'(\+?\d{1,3}[-.\s]?)?(\(?\d{1,4}?\)?[-.\s]?)?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}'
         company_pattern = r'\b[A-Z][a-zA-Z]+(?:\s[A-Za-z]+)?(?:\s(?:Corporation|Inc|Ltd|LLC|Group|Technologies|Solutions|Corp|Pvt|Company|Co))?\b'
         designation_pattern = r'\b(CEO|CTO|Manager|Director|Engineer|Consultant|Developer|Founder|President|Partner|Sales|Marketing)\b'
+        
         name = re.search(name_pattern, text)
         email = re.search(email_pattern, text)
         phone = re.search(phone_pattern, text)
         company = re.search(company_pattern, text)
         designation = re.search(designation_pattern, text)
+        
         result = {
             'name': name.group(0) if name else 'Not Found',
             'email': email.group(0) if email else 'Not Found',
@@ -1345,9 +1348,7 @@ def extract_info_from_card(image_path):
             'company': company.group(0) if company else 'Not Found',
             'designation': designation.group(0) if designation else 'Not Found',
         }
-
         return result
-
     except Exception as e:
         return {"error": str(e)}
 
