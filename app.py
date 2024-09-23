@@ -1329,16 +1329,19 @@ def extract_info_from_card(image_path):
         img = Image.open(image_path)
         pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'
         text = pytesseract.image_to_string(img)
+        
         name_pattern = r'[A-Z][a-z]+\s[A-Z][a-z]+'
         email_pattern = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
         phone_pattern = r'(\+?\d{1,3}?[-.\s]?)?(\(?\d{1,4}?\)?[-.\s]?)?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}'
         company_pattern = r'[A-Z][a-zA-Z]+\s(?:Corporation|Inc|Ltd|LLC|Company|Group|Corp)'
         designation_pattern = r'(CEO|CTO|Manager|Director|Engineer|Consultant|Developer)'
+        
         name = re.search(name_pattern, text)
         email = re.search(email_pattern, text)
         phone = re.search(phone_pattern, text)
         company = re.search(company_pattern, text)
         designation = re.search(designation_pattern, text)
+        
         result = {
             'name': name.group(0) if name else 'Not Found',
             'email': email.group(0) if email else 'Not Found',
@@ -1350,17 +1353,21 @@ def extract_info_from_card(image_path):
     except Exception as e:
         return {"error": str(e)}
 
-
 @app.route('/api/extract', methods=['POST'])
-def extract():
+@token_required  # Require token for this route
+def extract(user_id):
     if 'image' not in request.files:
         return jsonify({"error": "No file provided"}), 400
+    
     image = request.files['image']
+    
     with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_image:
         image_path = temp_image.name
         image.save(image_path)
+    
     result = extract_info_from_card(image_path)
     os.remove(image_path)
+    
     return jsonify(result)
 
 @app.route('/api/property', methods=['POST'])
