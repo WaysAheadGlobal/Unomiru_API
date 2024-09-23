@@ -1363,21 +1363,23 @@ def extract():
     os.remove(image_path)
     return jsonify(result)
 
-# Route to save or update property details
 @app.route('/api/property', methods=['POST'])
 @token_required
 def save_or_update_property(user_id):
     try:
-        # Get form data
-        pname = request.form.get('PName')
-        address = request.form.get('Address')
-        latitude = request.form.get('Latitude')
-        longitude = request.form.get('Longitude')
-        designation = request.form.get('Designation')
-        company_name = request.form.get('CompanyName')
-        mobile_number = request.form.get('MobileNumber')
+        # Get JSON data
+        data = request.get_json()
 
-        # Handle file uploads (images)
+        # Extract values from JSON
+        pname = data.get('PName')
+        address = data.get('Address')
+        latitude = data.get('Latitude')
+        longitude = data.get('Longitude')
+        designation = data.get('Designation')
+        company_name = data.get('CompanyName')
+        mobile_number = data.get('MobileNumber')
+
+        # Handle file uploads (images) if sent
         selfie = request.files.get('SelfieWithPropertyURL')
         property_image = request.files.get('PropertyImageURL')
         visiting_card = request.files.get('VisitingCardURL')
@@ -1436,7 +1438,7 @@ def save_or_update_property(user_id):
     except Exception as e:
         print(f"Error saving or updating property: {e}")
         return jsonify({'status': 500, 'message': 'An error occurred while saving or updating the property'}), 500
-    
+
 # Route to get all properties
 @app.route('/api/properties', methods=['GET'])
 @token_required
