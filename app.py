@@ -1577,7 +1577,8 @@ def submit_review(user_id, property_id):
         if conn:
             conn.close()
 # Route to get review count and average rating
-@app.route('/api/property/review/<int:property_id>/summary', methods=['GET'])
+# Route to get all reviews for a specific property
+@app.route('/api/property/reviews/<int:property_id>', methods=['GET'])
 @token_required
 def get_property_reviews(user_id, property_id):
     try:
