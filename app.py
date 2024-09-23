@@ -1577,8 +1577,6 @@ def submit_review(user_id, property_id):
         if conn:
             conn.close()
 # Route to get review count and average rating
-# Route to get all reviews for a specific property
-@app.route('/api/property/reviews/<int:property_id>', methods=['GET'])
 @token_required
 def get_property_reviews(user_id, property_id):
     try:
@@ -1589,11 +1587,16 @@ def get_property_reviews(user_id, property_id):
 
         cursor = conn.cursor()
 
-        # Query to get all reviews for the specified property
+        # Query to get all reviews for the specified property, including user first and last names
         cursor.execute("""
-            SELECT r.ReviewText, r.Rating, r.CreatedDate, u.UserID, u.Username
+            SELECT 
+                r.ReviewText, 
+                r.Rating, 
+                r.CreatedDate, 
+                u.FirstName, 
+                u.LastName
             FROM [UnomiruAppDB].[dbo].[tbOPT_RatingsReviews] AS r
-            JOIN [UnomiruAppDB].[dbo].[tbUsers] AS u ON r.UserID = u.UserID
+            JOIN [UnomiruAppDB].[dbo].[tbgl_User] AS u ON r.UserID = u.UserId
             WHERE r.PropertyID = ? AND r.IsActive = 1 AND r.IsDeleted = 0
         """, (property_id,))
 
@@ -1606,8 +1609,8 @@ def get_property_reviews(user_id, property_id):
                 'ReviewText': review.ReviewText,
                 'Rating': review.Rating,
                 'CreatedDate': review.CreatedDate.strftime("%Y-%m-%d %H:%M:%S"),
-                'UserID': review.UserID,
-                'Username': review.Username  # Assuming you have a Username field in tbUsers
+                'FirstName': review.FirstName,
+                'LastName': review.LastName
             })
 
         if review_list:
@@ -1628,7 +1631,7 @@ def get_property_reviews(user_id, property_id):
     finally:
         if conn:
             conn.close()
-
+            
 if __name__ == '__main__':
     app.run(debug=True)
 
