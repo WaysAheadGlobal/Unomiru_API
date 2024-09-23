@@ -1363,6 +1363,154 @@ def extract():
     os.remove(image_path)
     return jsonify(result)
 
+# Route to save or update property details
+@app.route('/api/property', methods=['POST'])
+@token_required
+def save_or_update_property(user_id):
+    try:
+        # Get form data
+        pname = request.form.get('PName')
+        address = request.form.get('Address')
+        latitude = request.form.get('Latitude')
+        longitude = request.form.get('Longitude')
+        designation = request.form.get('Designation')
+        company_name = request.form.get('CompanyName')
+        mobile_number = request.form.get('MobileNumber')
+
+        # Handle file uploads (images)
+        selfie = request.files.get('SelfieWithPropertyURL')
+        property_image = request.files.get('PropertyImageURL')
+        visiting_card = request.files.get('VisitingCardURL')
+
+        selfie_data = selfie.read() if selfie else None
+        property_image_data = property_image.read() if property_image else None
+        visiting_card_data = visiting_card.read() if visiting_card else None
+
+        # Connect to the database
+        connection = get_db_connection()
+        if not connection:
+            return jsonify({'status': 500, 'message': 'Database connection failed'}), 500
+
+        cursor = connection.cursor()
+
+        # Check if the property already exists (e.g., by PName and UserID or Address)
+        check_query = """
+            SELECT PropertyID FROM [dbo].[tbOPT_Property] 
+            WHERE UserID = ? AND (PName = ? OR Address = ?)
+        """
+        cursor.execute(check_query, (user_id, pname, address))
+        result = cursor.fetchone()
+
+        if result:
+            # Property exists, so update it
+            property_id = result[0]
+            update_query = """
+                UPDATE [dbo].[tbOPT_Property]
+                SET PName = ?, Address = ?, Latitude = ?, Longitude = ?, Designation = ?, 
+                    CompanyName = ?, MobileNumber = ?, SelfieWithPropertyURL = ?, 
+                    PropertyImageURL = ?, VisitingCardURL = ?, ModifiedBy = ?, ModifiedAt = GETDATE()
+                WHERE PropertyID = ?
+            """
+            cursor.execute(update_query, (pname, address, latitude, longitude, designation, company_name, 
+                                          mobile_number, selfie_data, property_image_data, visiting_card_data, 
+                                          user_id, property_id))
+            message = 'Property updated successfully'
+        else:
+            # Property does not exist, so insert a new one
+            insert_query = """
+                INSERT INTO [dbo].[tbOPT_Property] 
+                (UserID, PName, Address, Latitude, Longitude, Designation, CompanyName, MobileNumber, 
+                 SelfieWithPropertyURL, PropertyImageURL, VisitingCardURL, IsActive, IsDeleted, IsPermission, CreatedAt, ModifiedBy, ModifiedAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 0, GETDATE(), ?, GETDATE())
+            """
+            cursor.execute(insert_query, (user_id, pname, address, latitude, longitude, designation, 
+                                          company_name, mobile_number, selfie_data, property_image_data, 
+                                          visiting_card_data, user_id))
+            message = 'Property saved successfully'
+
+        connection.commit()
+        cursor.close()
+
+        return jsonify({'status': 200, 'message': message}), 200
+
+    except Exception as e:
+        print(f"Error saving or updating property: {e}")
+        return jsonify({'status': 500, 'message': 'An error occurred while saving or updating the property'}), 500
+    
+# Route to get all properties
+@app.route('/api/properties', methods=['GET'])
+@token_required
+def get_all_properties(user_id):
+    try:
+        connection = get_db_connection()
+        if not connection:
+            return jsonify({'status': 500, 'message': 'Database connection failed'}), 500
+        
+        cursor = connection.cursor()
+        query = "SELECT PropertyID, UserID, PName, Address, Latitude, Longitude, Designation, CompanyName, MobileNumber, CreatedAt FROM [dbo].[tbOPT_Property] WHERE IsDeleted = 0"
+        cursor.execute(query)
+        properties = cursor.fetchall()
+
+        # Convert properties to a list of dictionaries
+        properties_list = []
+        for property in properties:
+            properties_list.append({
+                'PropertyID': property[0],
+                'UserID': property[1],
+                'PName': property[2],
+                'Address': property[3],
+                'Latitude': property[4],
+                'Longitude': property[5],
+                'Designation': property[6],
+                'CompanyName': property[7],
+                'MobileNumber': property[8],
+                'CreatedAt': property[9].isoformat()
+            })
+
+        cursor.close()
+        return jsonify({'status': 200, 'properties': properties_list}), 200
+
+    except Exception as e:
+        print(f"Error retrieving properties: {e}")
+        return jsonify({'status': 500, 'message': 'An error occurred while retrieving properties'}), 500
+
+# Route to get a specific property by PropertyID
+@app.route('/api/property/<int:property_id>', methods=['GET'])
+@token_required
+def get_property_by_id(user_id, property_id):
+    try:
+        connection = get_db_connection()
+        if not connection:
+            return jsonify({'status': 500, 'message': 'Database connection failed'}), 500
+        
+        cursor = connection.cursor()
+        query = "SELECT PropertyID, UserID, PName, Address, Latitude, Longitude, Designation, CompanyName, MobileNumber, CreatedAt FROM [dbo].[tbOPT_Property] WHERE PropertyID = ? AND IsDeleted = 0"
+        cursor.execute(query, (property_id,))
+        property = cursor.fetchone()
+
+        if property:
+            property_data = {
+                'PropertyID': property[0],
+                'UserID': property[1],
+                'PName': property[2],
+                'Address': property[3],
+                'Latitude': property[4],
+                'Longitude': property[5],
+                'Designation': property[6],
+                'CompanyName': property[7],
+                'MobileNumber': property[8],
+                'CreatedAt': property[9].isoformat()
+            }
+            cursor.close()
+            return jsonify({'status': 200, 'property': property_data}), 200
+        else:
+            cursor.close()
+            return jsonify({'status': 404, 'message': 'Property not found'}), 404
+
+    except Exception as e:
+        print(f"Error retrieving property: {e}")
+        return jsonify({'status': 500, 'message': 'An error occurred while retrieving the property'}), 500
+
 if __name__ == '__main__':
     app.run(debug=True)
 
