@@ -1351,7 +1351,7 @@ def extract_info_from_card(image_path):
         return {"error": str(e)}
 
 
-@app.route('/extract', methods=['POST'])
+@app.route('/api/extract', methods=['POST'])
 def extract():
     if 'image' not in request.files:
         return jsonify({"error": "No file provided"}), 400
