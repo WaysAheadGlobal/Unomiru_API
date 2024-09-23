@@ -1519,6 +1519,63 @@ def get_property_by_id(user_id, property_id):
     except Exception as e:
         print(f"Error retrieving property: {e}")
         return jsonify({'status': 500, 'message': 'An error occurred while retrieving the property'}), 500
+    
+# Route to submit a review and rating
+@app.route('/api/property/review/<int:property_id>', methods=['POST'])
+@token_required
+def submit_review(user_id, property_id):
+    try:
+        data = request.get_json()
+
+        # Ensure required fields are provided
+        rating = data.get('Rating')
+        review_text = data.get('ReviewText')
+
+        if rating is None or not review_text:
+            return jsonify({'status': 400, 'message': 'Rating and ReviewText are required'}), 400
+
+        # Establish the database connection
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
+
+        cursor = conn.cursor()
+
+        # Check if the user already submitted a review for this PropertyID
+        cursor.execute("""
+            SELECT ReviewOptID 
+            FROM [UnomiruAppDB].[dbo].[tbOPT_RatingsReviews]
+            WHERE PropertyID = ? AND UserID = ? AND IsActive = 1 AND IsDeleted = 0
+        """, (property_id, user_id))
+        
+        existing_review = cursor.fetchone()
+
+        if existing_review:
+            return jsonify({
+                'status': 400,
+                'message': 'User has already submitted an active review for this PropertyID'
+            }), 400
+
+        # Insert the new review into the tbOPT_RatingsReviews table
+        cursor.execute("""
+            INSERT INTO [UnomiruAppDB].[dbo].[tbOPT_RatingsReviews] 
+            (PropertyID, UserID, Rating, ReviewText, IsActive, IsDeleted, CreatedDate)
+            VALUES (?, ?, ?, ?, 1, 0, GETDATE())
+        """, (property_id, user_id, rating, review_text))
+
+        conn.commit()
+
+        return jsonify({
+            'status': 201,
+            'message': f'Review successfully submitted for PropertyID {property_id}'
+        }), 201
+
+    except Exception as e:
+        print(f"Error submitting review for PropertyID {property_id}: {e}")
+        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
+    finally:
+        if conn:
+            conn.close()
 
 if __name__ == '__main__':
     app.run(debug=True)
