@@ -9,12 +9,15 @@ import http.client
 from codecs import encode
 
 from flask_cors import CORS 
-app = Flask(_name_)
+
+# Initialize the Flask application
+app = Flask(__name__)
 CORS(app)
-# app = Flask(__name__)
 
 # Secret key for JWT encoding/decoding
 SECRET_KEY = 'your_secret_key'
+
+# Your additional code here...
 
 def token_required(f):
     @wraps(f)
