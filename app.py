@@ -1579,7 +1579,7 @@ def submit_review(user_id, property_id):
 # Route to get review count and average rating
 @app.route('/api/property/review/<int:property_id>/summary', methods=['GET'])
 @token_required
-def get_review_summary(user_id, property_id):
+def get_review_details(user_id, property_id):
     try:
         # Establish the database connection
         conn = get_db_connection()
@@ -1588,22 +1588,31 @@ def get_review_summary(user_id, property_id):
 
         cursor = conn.cursor()
 
-        # Query to get the review count and average rating
+        # Query to get all review texts and user details
         cursor.execute("""
-            SELECT COUNT(*) AS ReviewCount, AVG(Rating) AS AverageRating
-            FROM [UnomiruAppDB].[dbo].[tbOPT_RatingsReviews]
-            WHERE PropertyID = ? AND IsActive = 1 AND IsDeleted = 0
+            SELECT r.ReviewText, r.Rating, r.CreatedDate, u.UserID, u.Username
+            FROM [UnomiruAppDB].[dbo].[tbOPT_RatingsReviews] r
+            JOIN [UnomiruAppDB].[dbo].[tbUsers] u ON r.UserID = u.UserID
+            WHERE r.PropertyID = ? AND r.IsActive = 1 AND r.IsDeleted = 0
         """, (property_id,))
 
-        summary = cursor.fetchone()
-        
-        if summary:
-            review_count, average_rating = summary
+        reviews = cursor.fetchall()
+        review_list = []
+
+        for review in reviews:
+            review_list.append({
+                'ReviewText': review.ReviewText,
+                'Rating': review.Rating,
+                'CreatedDate': review.CreatedDate.isoformat(),
+                'UserID': review.UserID,
+                'Username': review.Username
+            })
+
+        if review_list:
             return jsonify({
                 'status': 200,
                 'PropertyID': property_id,
-                'ReviewCount': review_count,
-                'AverageRating': average_rating if average_rating is not None else 0
+                'Reviews': review_list
             }), 200
         else:
             return jsonify({
@@ -1612,12 +1621,11 @@ def get_review_summary(user_id, property_id):
             }), 404
 
     except Exception as e:
-        print(f"Error retrieving review summary for PropertyID {property_id}: {e}")
+        print(f"Error retrieving review details for PropertyID {property_id}: {e}")
         return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
     finally:
         if conn:
             conn.close()
-
 if __name__ == '__main__':
     app.run(debug=True)
 
