@@ -1327,6 +1327,7 @@ def get_enquiry(enquiry_id):
 def extract_info_from_card(image_path):
     try:
         img = Image.open(image_path)
+        pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'
         text = pytesseract.image_to_string(img)
         name_pattern = r'[A-Z][a-z]+\s[A-Z][a-z]+'
         email_pattern = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
