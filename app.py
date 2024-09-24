@@ -942,7 +942,8 @@ def submit_review_comment(user_id, vr360_id):
             conn.close()
 
 @app.route('/api/vr-reviews/<int:vr360_id>', methods=['GET'])
-def get_reviews(vr360_id):
+@token_required  # Assuming you want to apply the same token authentication as in the property reviews
+def get_reviews(user_id, vr360_id):
     try:
         # Establish the database connection
         conn = get_db_connection()
@@ -951,54 +952,61 @@ def get_reviews(vr360_id):
 
         cursor = conn.cursor()
 
-        # SQL query to fetch all reviews for a specific VR360ID with user first and last names
+        # Query to get all reviews for the specified VR360, including user first and last names
         cursor.execute("""
-            SELECT r.ReviewOptID, r.UserID, r.Rating, r.ReviewText, r.CreatedDate, u.FirstName, u.LastName
-            FROM [UnomiruAppDB].[dbo].[tbOPT_RatingsReviews] r
-            JOIN [UnomiruAppDB].[dbo].[tbgl_User] u ON r.UserID = u.UserId
-            WHERE r.PropertyID = ? AND r.IsActive = 1 AND r.IsDeleted = 0
-            ORDER BY r.CreatedDate DESC
+            SELECT 
+                r.ReviewText, 
+                r.Rating, 
+                r.CreatedDate, 
+                u.FirstName, 
+                u.LastName
+            FROM [UnomiruAppDB].[dbo].[tbDS_RatingsReviews] AS r
+            JOIN [UnomiruAppDB].[dbo].[tbgl_User] AS u ON r.UserID = u.UserId
+            WHERE r.VR360ID = ? AND r.IsActive = 1 AND r.IsDeleted = 0
         """, (vr360_id,))
 
         reviews = cursor.fetchall()
 
-        # If no reviews found, return a 404
-        if not reviews:
-            return jsonify({'status': 404, 'message': f'No reviews found for PropertyID {vr360_id}'}), 404
-
-        # Build a list of reviews with user first and last names
-        reviews_data = [
-            {
-                'ReviewID': review[0],
-                'UserID': review[1],
-                'Rating': review[2],
-                'ReviewText': review[3],
-                'CreatedDate': review[4],
-                'Username': f"{review[5]} {review[6]}"  # Concatenate first and last names
-            }
-            for review in reviews
-        ]
-
-        # Calculate the average rating for this VR360ID
+        # Query to calculate the precise average rating for the VR360ID
         cursor.execute("""
-            SELECT AVG(Rating), COUNT(Rating)
-            FROM [UnomiruAppDB].[dbo].[tbOPT_RatingsReviews]
-            WHERE PropertyID = ? AND IsActive = 1 AND IsDeleted = 0
+            SELECT AVG(CAST(Rating AS FLOAT))
+            FROM [UnomiruAppDB].[dbo].[tbDS_RatingsReviews]
+            WHERE VR360ID = ? AND IsActive = 1 AND IsDeleted = 0
         """, (vr360_id,))
-        avg_rating, review_count = cursor.fetchone()
+        
+        avg_rating = cursor.fetchone()[0]  # Fetch the average rating
+        
+        if avg_rating is None:
+            avg_rating = 0  # Set to 0 if there are no reviews
 
-        return jsonify({
-            'status': 200,
-            'reviews': reviews_data,
-            'average_rating': round(avg_rating, 2) if avg_rating is not None else 0,
-            'total_reviews': review_count if review_count is not None else 0,
-            'message': f'Reviews for PropertyID {vr360_id} retrieved successfully'
-        })
+        # Format the result
+        review_list = []
+        for review in reviews:
+            review_list.append({
+                'ReviewText': review[0],   # ReviewText
+                'Rating': review[1],       # Rating
+                'CreatedDate': review[2].strftime("%Y-%m-%d %H:%M:%S"),  # Format the date
+                'FirstName': review[3],    # FirstName
+                'LastName': review[4]      # LastName
+            })
+
+        if review_list:
+            return jsonify({
+                'status': 200,
+                'VR360ID': vr360_id,
+                'Reviews': review_list,
+                'AverageRating': round(float(avg_rating), 2),  # Round average rating to 2 decimal places
+                'TotalReviews': len(review_list)  # Total number of reviews
+            }), 200
+        else:
+            return jsonify({
+                'status': 404,
+                'message': f'No reviews found for VR360ID {vr360_id}'
+            }), 404
 
     except Exception as e:
-        print(f"Error retrieving reviews for PropertyID {vr360_id}: {e}")
+        print(f"Error retrieving reviews for VR360ID {vr360_id}: {e}")
         return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
-
     finally:
         if conn:
             conn.close()
