@@ -1634,9 +1634,9 @@ def get_enquiry(enquiry_id):
         if conn:
             conn.close()
 
-# Subscribe to Newsletter
 @app.route('/api/newsletter/subscribe', methods=['POST'])
 def subscribe_newsletter():
+    conn = None  # Initialize the conn variable
     try:
         data = request.get_json()
         name = data.get('name')
@@ -1646,7 +1646,7 @@ def subscribe_newsletter():
         if not name or not email or not is_valid_email(email):
             return jsonify({'status': 400, 'message': 'Name and a valid email are required'}), 400
 
-        conn = get_db_connection()
+        conn = get_db_connection()  # Attempt to establish the connection
         if not conn:
             return jsonify({'status': 500, 'message': 'Database connection error'}), 500
 
@@ -1676,90 +1676,9 @@ def subscribe_newsletter():
         return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
 
     finally:
-        if conn:
+        if conn:  # Only close the connection if it was successfully established
             conn.close()
 
-# Unsubscribe from Newsletter
-@app.route('/api/newsletter/unsubscribe', methods=['POST'])
-def unsubscribe_newsletter():
-    try:
-        data = request.get_json()
-        email = data.get('email')
-
-        if not email or not is_valid_email(email):
-            return jsonify({'status': 400, 'message': 'Invalid or missing email'}), 400
-
-        conn = get_db_connection()
-        if not conn:
-            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
-
-        cursor = conn.cursor()
-
-        # Deactivate the subscription
-        cursor.execute("""
-            UPDATE [dbo].[tbgl_NewsletterSignUp]
-            SET Status = 'Unsubscribed', IsActive = 0
-            WHERE Email = ? AND IsActive = 1
-        """, (email,))
-        conn.commit()
-
-        if cursor.rowcount == 0:
-            return jsonify({'status': 404, 'message': 'Email not found or already unsubscribed'}), 404
-
-        return jsonify({'status': 200, 'message': f'Successfully unsubscribed {email} from the newsletter'}), 200
-
-    except Exception as e:
-        print(f"Error unsubscribing from newsletter: {e}")
-        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
-
-    finally:
-        if conn:
-            conn.close()
-
-# Get all active subscribers (Admin functionality)
-@app.route('/api/newsletter/subscribers', methods=['GET'])
-def get_subscribers():
-    try:
-        conn = get_db_connection()
-        if not conn:
-            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
-
-        cursor = conn.cursor()
-
-        # Fetch all active subscribers
-        cursor.execute("""
-            SELECT Name, Email, SignUpDate 
-            FROM [dbo].[tbgl_NewsletterSignUp]
-            WHERE IsActive = 1 AND Status = 'Subscribed'
-        """)
-        subscribers = cursor.fetchall()
-
-        if not subscribers:
-            return jsonify({'status': 404, 'message': 'No active subscribers found'}), 404
-
-        # Format subscribers into a list of dictionaries
-        subscribers_data = [
-            {
-                'Name': subscriber[0],
-                'Email': subscriber[1],
-                'SignUpDate': subscriber[2]
-            }
-            for subscriber in subscribers
-        ]
-
-        return jsonify({
-            'status': 200,
-            'subscribers': subscribers_data,
-            'message': 'Active subscribers retrieved successfully'
-        }), 200
-
-    except Exception as e:
-        print(f"Error retrieving subscribers: {e}")
-        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
-
-    finally:
-        if conn:
-            conn.close()
 
 if __name__ == '__main__':
     app.run(debug=True)
