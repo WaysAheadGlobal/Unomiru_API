@@ -941,8 +941,8 @@ def submit_review_comment(user_id, vr360_id):
         if conn:
             conn.close()
 
-@app.route('/api/vr-reviews', methods=['GET'])
-def get_all_reviews():
+@app.route('/api/vr-reviews/<int:vr360_id>', methods=['GET'])
+def get_reviews(vr360_id):
     try:
         # Establish the database connection
         conn = get_db_connection()
@@ -951,46 +951,52 @@ def get_all_reviews():
 
         cursor = conn.cursor()
 
-        # SQL query to fetch all reviews for all PropertyIDs with user's first and last names
+        # SQL query to fetch all reviews for a specific VR360ID with user first and last names
         cursor.execute("""
-            SELECT r.PropertyID, r.ReviewOptID, r.Rating, r.ReviewText, r.CreatedDate, u.FirstName, u.LastName
+            SELECT r.ReviewOptID, r.UserID, r.Rating, r.ReviewText, r.CreatedDate, u.FirstName, u.LastName
             FROM [UnomiruAppDB].[dbo].[tbOPT_RatingsReviews] r
             JOIN [UnomiruAppDB].[dbo].[tbgl_User] u ON r.UserID = u.UserId
-            WHERE r.IsActive = 1 AND r.IsDeleted = 0
-            ORDER BY r.PropertyID, r.CreatedDate DESC
-        """)
+            WHERE r.PropertyID = ? AND r.IsActive = 1 AND r.IsDeleted = 0
+            ORDER BY r.CreatedDate DESC
+        """, (vr360_id,))
 
         reviews = cursor.fetchall()
 
         # If no reviews found, return a 404
         if not reviews:
-            return jsonify({'status': 404, 'message': 'No reviews found'}), 404
+            return jsonify({'status': 404, 'message': f'No reviews found for PropertyID {vr360_id}'}), 404
 
-        # Group reviews by PropertyID (VR360ID)
-        grouped_reviews = {}
-        for review in reviews:
-            property_id = review[0]
-            review_data = {
-                'ReviewID': review[1],
+        # Build a list of reviews with user first and last names
+        reviews_data = [
+            {
+                'ReviewID': review[0],
+                'UserID': review[1],
                 'Rating': review[2],
                 'ReviewText': review[3],
                 'CreatedDate': review[4],
-                'Username': f"{review[5]} {review[6]}"  # Concatenate FirstName and LastName
+                'Username': f"{review[5]} {review[6]}"  # Concatenate first and last names
             }
+            for review in reviews
+        ]
 
-            if property_id not in grouped_reviews:
-                grouped_reviews[property_id] = []
-
-            grouped_reviews[property_id].append(review_data)
+        # Calculate the average rating for this VR360ID
+        cursor.execute("""
+            SELECT AVG(Rating), COUNT(Rating)
+            FROM [UnomiruAppDB].[dbo].[tbOPT_RatingsReviews]
+            WHERE PropertyID = ? AND IsActive = 1 AND IsDeleted = 0
+        """, (vr360_id,))
+        avg_rating, review_count = cursor.fetchone()
 
         return jsonify({
             'status': 200,
-            'reviews': grouped_reviews,
-            'message': 'All reviews retrieved successfully'
+            'reviews': reviews_data,
+            'average_rating': round(avg_rating, 2) if avg_rating is not None else 0,
+            'total_reviews': review_count if review_count is not None else 0,
+            'message': f'Reviews for PropertyID {vr360_id} retrieved successfully'
         })
 
     except Exception as e:
-        print(f"Error retrieving reviews: {e}")
+        print(f"Error retrieving reviews for PropertyID {vr360_id}: {e}")
         return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
 
     finally:
