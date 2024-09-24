@@ -1452,7 +1452,64 @@ def get_property_reviews(user_id, property_id):
         if conn:
             conn.close()
 
-#==================================================================== Web API ====================================================================
+@app.route('/api/wishlist/property/<int:property_id>', methods=['POST'])
+@token_required
+def toggle_property_wishlist(user_id, property_id):
+    try:
+        # Establish the database connection
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
+
+        cursor = conn.cursor()
+
+        # Check if a wishlist entry exists for the user and PropertyID
+        cursor.execute("""
+            SELECT WishlistOptID, IsDeleted 
+            FROM [UnomiruAppDB].[dbo].[tbOPT_Wishlist] 
+            WHERE UserID = ? AND PropertyID = ?
+        """, (user_id, property_id))
+        
+        wishlist_entry = cursor.fetchone()
+
+        if wishlist_entry:
+            # Toggle the IsDeleted value: If 0, set to 1 (removes from wishlist), and vice versa
+            new_is_deleted = 1 if wishlist_entry[1] == 0 else 0
+
+            # Update the existing wishlist entry
+            cursor.execute("""
+                UPDATE [UnomiruAppDB].[dbo].[tbOPT_Wishlist]
+                SET IsDeleted = ?, CreatedDate = GETDATE()
+                WHERE WishlistOptID = ?
+            """, (new_is_deleted, wishlist_entry[0]))
+
+            message = "Removed from wishlist" if new_is_deleted == 1 else "Added to wishlist"
+        else:
+            # Insert a new wishlist entry
+            cursor.execute("""
+                INSERT INTO [UnomiruAppDB].[dbo].[tbOPT_Wishlist] 
+                (UserID, PropertyID, CreatedDate, IsDeleted)
+                VALUES (?, ?, GETDATE(), 0)
+            """, (user_id, property_id))
+            message = "Added to wishlist"
+
+        conn.commit()
+
+        return jsonify({
+            'status': 200,
+            'message': message
+        }), 200
+
+    except Exception as e:
+        print(f"Error toggling wishlist for PropertyID {property_id}: {e}")
+        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+#==================================================================== Web Page API ===============================================================
+
 
 # API route to submit an enquiry
 @app.route('/api/enquiries', methods=['POST'])
