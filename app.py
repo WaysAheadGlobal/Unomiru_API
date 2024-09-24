@@ -1636,47 +1636,42 @@ def get_enquiry(enquiry_id):
 
 @app.route('/api/newsletter/subscribe', methods=['POST'])
 def subscribe_newsletter():
-    conn = None  # Initialize the conn variable
+    data = request.get_json()
+    name = data.get('name')
+    email = data.get('email')
+
+    if not name or not email:
+        return jsonify({'status': 400, 'message': 'Name and Email are required'}), 400
+
+    # Establish the database connection
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({'status': 500, 'message': 'Database connection error'}), 500
+
     try:
-        data = request.get_json()
-        name = data.get('name')
-        email = data.get('email')
-
-        # Check if name and email are provided and valid
-        if not name or not email or not is_valid_email(email):
-            return jsonify({'status': 400, 'message': 'Name and a valid email are required'}), 400
-
-        conn = get_db_connection()  # Attempt to establish the connection
-        if not conn:
-            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
-
         cursor = conn.cursor()
-
-        # Check if the email is already subscribed
+        
+        # Insert the new subscriber into the newsletter table
         cursor.execute("""
-            SELECT Email FROM [dbo].[tbgl_NewsletterSignUp] 
-            WHERE Email = ? AND IsActive = 1
-        """, (email,))
-        existing_subscription = cursor.fetchone()
-
-        if existing_subscription:
-            return jsonify({'status': 400, 'message': 'Email is already subscribed'}), 400
-
-        # Insert the new subscription
-        cursor.execute("""
-            INSERT INTO [dbo].[tbgl_NewsletterSignUp] (Name, Email, SignUpDate, Status, IsActive)
-            VALUES (?, ?, GETDATE(), 'Subscribed', 1)
+            INSERT INTO [UnomiruAppDB].[dbo].[tbgl_NewsletterSignUp] 
+            (Name, Email) VALUES (?, ?)
         """, (name, email))
+
         conn.commit()
 
-        return jsonify({'status': 201, 'message': f'Successfully subscribed {name} to the newsletter'}), 201
+        # Send confirmation email
+        subject = "Welcome to Our Newsletter"
+        body = f"Hello {name},\n\nThank you for subscribing to our newsletter!\n\nBest Regards,\nYour Company"
+        send_email(email, subject, body)
+
+        return jsonify({'status': 201, 'message': 'Subscription successful and email sent!'}), 201
 
     except Exception as e:
-        print(f"Error subscribing to newsletter: {e}")
+        print(f"Error during subscription: {e}")
         return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
 
     finally:
-        if conn:  # Only close the connection if it was successfully established
+        if conn:
             conn.close()
 
 
