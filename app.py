@@ -11,7 +11,6 @@ import os
 import re
 import pytesseract
 from PIL import Image
-# from flask import Flask, request, jsonify
 import tempfile
 
 from flask_cors import CORS 
@@ -78,6 +77,11 @@ def get_db_connection():
     except Exception as e:
         print(f"Database connection failed: {e}")
         return None
+
+# Helper function to validate email format
+def is_valid_email(email):
+    email_regex = r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$'
+    return re.match(email_regex, email)
 
 # Hash OTP
 def hash_otp(otp):
@@ -937,8 +941,8 @@ def submit_review_comment(user_id, vr360_id):
         if conn:
             conn.close()
 
-@app.route('/api/vr-reviews/<int:vr360_id>', methods=['GET'])
-def get_reviews(vr360_id):
+@app.route('/api/vr-reviews', methods=['GET'])
+def get_all_reviews():
     try:
         # Establish the database connection
         conn = get_db_connection()
@@ -947,51 +951,46 @@ def get_reviews(vr360_id):
 
         cursor = conn.cursor()
 
-        # Adjusted SQL query to fetch all reviews for a specific VR360ID
+        # SQL query to fetch all reviews for all PropertyIDs with user's first and last names
         cursor.execute("""
-            SELECT r.ReviewID, r.UserID, r.Rating, r.ReviewText, r.CreatedDate, u.Username
-            FROM [UnomiruAppDB].[dbo].[tbDS_RatingsReviews] r
+            SELECT r.PropertyID, r.ReviewOptID, r.Rating, r.ReviewText, r.CreatedDate, u.FirstName, u.LastName
+            FROM [UnomiruAppDB].[dbo].[tbOPT_RatingsReviews] r
             JOIN [UnomiruAppDB].[dbo].[tbgl_User] u ON r.UserID = u.UserId
-            WHERE r.VR360ID = ? AND r.IsActive = 1 AND r.IsDeleted = 0
-            ORDER BY r.CreatedDate DESC
-        """, (vr360_id,))
+            WHERE r.IsActive = 1 AND r.IsDeleted = 0
+            ORDER BY r.PropertyID, r.CreatedDate DESC
+        """)
 
         reviews = cursor.fetchall()
 
         # If no reviews found, return a 404
         if not reviews:
-            return jsonify({'status': 404, 'message': f'No reviews found for VR360ID {vr360_id}'}), 404
+            return jsonify({'status': 404, 'message': 'No reviews found'}), 404
 
-        # Build a list of reviews
-        reviews_data = [
-            {
-                'ReviewID': review[0],
-                'UserID': review[1],
+        # Group reviews by PropertyID (VR360ID)
+        grouped_reviews = {}
+        for review in reviews:
+            property_id = review[0]
+            review_data = {
+                'ReviewID': review[1],
                 'Rating': review[2],
                 'ReviewText': review[3],
                 'CreatedDate': review[4],
-                'Username': review[5]
+                'Username': f"{review[5]} {review[6]}"  # Concatenate FirstName and LastName
             }
-            for review in reviews
-        ]
 
-        # Calculate the average rating for this VR360ID
-        cursor.execute("""
-            SELECT AVG(Rating)
-            FROM [UnomiruAppDB].[dbo].[tbDS_RatingsReviews]
-            WHERE VR360ID = ? AND IsActive = 1 AND IsDeleted = 0
-        """, (vr360_id,))
-        avg_rating = cursor.fetchone()[0]
+            if property_id not in grouped_reviews:
+                grouped_reviews[property_id] = []
+
+            grouped_reviews[property_id].append(review_data)
 
         return jsonify({
             'status': 200,
-            'reviews': reviews_data,
-            'average_rating': round(avg_rating, 2) if avg_rating is not None else 0,
-            'message': f'Reviews for VR360ID {vr360_id} retrieved successfully'
+            'reviews': grouped_reviews,
+            'message': 'All reviews retrieved successfully'
         })
 
     except Exception as e:
-        print(f"Error retrieving reviews for VR360ID {vr360_id}: {e}")
+        print(f"Error retrieving reviews: {e}")
         return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
 
     finally:
@@ -1132,192 +1131,6 @@ def guest_vr_discover_listing():
 
     except Exception as e:
         print(f"Error retrieving properties: {e}")
-        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
-    finally:
-        if conn:
-            conn.close()
-
-# API route to submit an enquiry
-@app.route('/api/enquiries', methods=['POST'])
-def submit_enquiry():
-    conn = None  # Initialize conn to None
-    try:
-        data = request.get_json()
-
-        # Validate input fields
-        name = data.get('Name')
-        email = data.get('Email')
-        phone = data.get('Phone')
-        course_name = data.get('CourseName')
-        enquiry_message = data.get('EnquiryMessage')
-
-        if not email or not phone:
-            return jsonify({'status': 400, 'message': 'Email and Phone are required fields'}), 400
-
-        # Establish database connection
-        conn = get_db_connection()
-        if not conn:
-            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
-
-        cursor = conn.cursor()
-
-        # Insert the new enquiry into the database
-        cursor.execute("""
-            INSERT INTO [dbo].[tbgl_V360courseEnquiries] 
-            ([Name], [Email], [Phone], [CourseName], [EnquiryMessage], [EnquiryDate], [Status], [IsDeleted]) 
-            VALUES (?, ?, ?, ?, ?, GETDATE(), 'Pending', 0)
-        """, (name, email, phone, course_name, enquiry_message))
-
-        conn.commit()
-
-        return jsonify({
-            'status': 201,
-            'message': 'Enquiry submitted successfully'
-        }), 201
-
-    except Exception as e:
-        print(f"Error submitting enquiry: {e}")
-        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
-    finally:
-        if conn:
-            conn.close()  # Ensure conn is closed only if it was successfully established
-
-    try:
-        data = request.get_json()
-
-        # Validate input fields
-        name = data.get('Name')
-        email = data.get('Email')
-        phone = data.get('Phone')
-        course_name = data.get('CourseName')
-       # enquiry_message = data.get('EnquiryMessage')
-
-        if not email or not phone:
-            return jsonify({'status': 400, 'message': 'Email and Phone are required fields'}), 400
-
-        # Establish database connection
-        conn = get_db_connection()
-        if not conn:
-            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
-
-        cursor = conn.cursor()
-
-        # Insert the new enquiry into the database
-        cursor.execute("""
-            INSERT INTO [dbo].[tbgl_V360courseEnquiries] 
-            ([Name], [Email], [Phone], [CourseName], [EnquiryMessage], [EnquiryDate], [Status], [IsDeleted]) 
-            VALUES (?, ?, ?, ?, ?, GETDATE(), 'Pending', 0)
-        """, (name, email, phone, course_name, enquiry_message))
-
-        conn.commit()
-
-        return jsonify({
-            'status': 201,
-            'message': 'Enquiry submitted successfully'
-        }), 201
-
-    except Exception as e:
-        print(f"Error submitting enquiry: {e}")
-        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
-    finally:
-        if conn:
-            conn.close()
-
-# API route to retrieve all enquiries (protected by token)
-@app.route('/api/enquiries', methods=['GET'])
-@token_required
-def get_all_enquiries():
-    try:
-        # Establish database connection
-        conn = get_db_connection()
-        if not conn:
-            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
-
-        cursor = conn.cursor()
-
-        # Fetch all non-deleted enquiries from the database
-        cursor.execute("""
-            SELECT [EnquiryID], [Name], [Email], [Phone], [CourseName], [EnquiryMessage], 
-                   [EnquiryDate], [Status] 
-            FROM [dbo].[tbgl_V360courseEnquiries]
-            WHERE [IsDeleted] = 0
-            ORDER BY [EnquiryDate] DESC
-        """)
-
-        enquiries = cursor.fetchall()
-
-        # Format the response data
-        enquiry_list = []
-        for enquiry in enquiries:
-            enquiry_list.append({
-                'EnquiryID': enquiry[0],
-                'Name': enquiry[1],
-                'Email': enquiry[2],
-                'Phone': enquiry[3],
-                'CourseName': enquiry[4],
-                'EnquiryMessage': enquiry[5],
-                'EnquiryDate': enquiry[6],
-                'Status': enquiry[7]
-            })
-
-        return jsonify({
-            'status': 200,
-            'enquiries': enquiry_list,
-            'message': 'Enquiries retrieved successfully'
-        })
-
-    except Exception as e:
-        print(f"Error retrieving enquiries: {e}")
-        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
-    finally:
-        if conn:
-            conn.close()
-
-# API route to retrieve an individual enquiry by ID
-@app.route('/api/enquiries/<int:enquiry_id>', methods=['GET'])
-@token_required
-def get_enquiry(enquiry_id):
-    try:
-        # Establish database connection
-        conn = get_db_connection()
-        if not conn:
-            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
-
-        cursor = conn.cursor()
-
-        # Fetch the specific enquiry by ID
-        cursor.execute("""
-            SELECT [EnquiryID], [Name], [Email], [Phone], [CourseName], [EnquiryMessage], 
-                   [EnquiryDate], [Status]
-            FROM [dbo].[tbgl_V360courseEnquiries]
-            WHERE [EnquiryID] = ? AND [IsDeleted] = 0
-        """, (enquiry_id,))
-
-        enquiry = cursor.fetchone()
-
-        if not enquiry:
-            return jsonify({'status': 404, 'message': f'Enquiry with ID {enquiry_id} not found'}), 404
-
-        # Format the response
-        enquiry_data = {
-            'EnquiryID': enquiry[0],
-            'Name': enquiry[1],
-            'Email': enquiry[2],
-            'Phone': enquiry[3],
-            'CourseName': enquiry[4],
-            'EnquiryMessage': enquiry[5],
-            'EnquiryDate': enquiry[6],
-            'Status': enquiry[7]
-        }
-
-        return jsonify({
-            'status': 200,
-            'enquiry': enquiry_data,
-            'message': f'Enquiry with ID {enquiry_id} retrieved successfully'
-        })
-
-    except Exception as e:
-        print(f"Error retrieving enquiry with ID {enquiry_id}: {e}")
         return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
     finally:
         if conn:
@@ -1629,6 +1442,321 @@ def get_property_reviews(user_id, property_id):
     except Exception as e:
         print(f"Error retrieving reviews for PropertyID {property_id}: {e}")
         return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
+    finally:
+        if conn:
+            conn.close()
+
+#==================================================================== Web API ====================================================================
+
+# API route to submit an enquiry
+@app.route('/api/enquiries', methods=['POST'])
+def submit_enquiry():
+    conn = None  # Initialize conn to None
+    try:
+        data = request.get_json()
+
+        # Validate input fields
+        name = data.get('Name')
+        email = data.get('Email')
+        phone = data.get('Phone')
+        course_name = data.get('CourseName')
+        enquiry_message = data.get('EnquiryMessage')
+
+        if not email or not phone:
+            return jsonify({'status': 400, 'message': 'Email and Phone are required fields'}), 400
+
+        # Establish database connection
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
+
+        cursor = conn.cursor()
+
+        # Insert the new enquiry into the database
+        cursor.execute("""
+            INSERT INTO [dbo].[tbgl_V360courseEnquiries] 
+            ([Name], [Email], [Phone], [CourseName], [EnquiryMessage], [EnquiryDate], [Status], [IsDeleted]) 
+            VALUES (?, ?, ?, ?, ?, GETDATE(), 'Pending', 0)
+        """, (name, email, phone, course_name, enquiry_message))
+
+        conn.commit()
+
+        return jsonify({
+            'status': 201,
+            'message': 'Enquiry submitted successfully'
+        }), 201
+
+    except Exception as e:
+        print(f"Error submitting enquiry: {e}")
+        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
+    finally:
+        if conn:
+            conn.close()  # Ensure conn is closed only if it was successfully established
+
+    try:
+        data = request.get_json()
+
+        # Validate input fields
+        name = data.get('Name')
+        email = data.get('Email')
+        phone = data.get('Phone')
+        course_name = data.get('CourseName')
+       # enquiry_message = data.get('EnquiryMessage')
+
+        if not email or not phone:
+            return jsonify({'status': 400, 'message': 'Email and Phone are required fields'}), 400
+
+        # Establish database connection
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
+
+        cursor = conn.cursor()
+
+        # Insert the new enquiry into the database
+        cursor.execute("""
+            INSERT INTO [dbo].[tbgl_V360courseEnquiries] 
+            ([Name], [Email], [Phone], [CourseName], [EnquiryMessage], [EnquiryDate], [Status], [IsDeleted]) 
+            VALUES (?, ?, ?, ?, ?, GETDATE(), 'Pending', 0)
+        """, (name, email, phone, course_name, enquiry_message))
+
+        conn.commit()
+
+        return jsonify({
+            'status': 201,
+            'message': 'Enquiry submitted successfully'
+        }), 201
+
+    except Exception as e:
+        print(f"Error submitting enquiry: {e}")
+        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
+    finally:
+        if conn:
+            conn.close()
+
+# API route to retrieve all enquiries (protected by token)
+@app.route('/api/enquiries', methods=['GET'])
+@token_required
+def get_all_enquiries():
+    try:
+        # Establish database connection
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
+
+        cursor = conn.cursor()
+
+        # Fetch all non-deleted enquiries from the database
+        cursor.execute("""
+            SELECT [EnquiryID], [Name], [Email], [Phone], [CourseName], [EnquiryMessage], 
+                   [EnquiryDate], [Status] 
+            FROM [dbo].[tbgl_V360courseEnquiries]
+            WHERE [IsDeleted] = 0
+            ORDER BY [EnquiryDate] DESC
+        """)
+
+        enquiries = cursor.fetchall()
+
+        # Format the response data
+        enquiry_list = []
+        for enquiry in enquiries:
+            enquiry_list.append({
+                'EnquiryID': enquiry[0],
+                'Name': enquiry[1],
+                'Email': enquiry[2],
+                'Phone': enquiry[3],
+                'CourseName': enquiry[4],
+                'EnquiryMessage': enquiry[5],
+                'EnquiryDate': enquiry[6],
+                'Status': enquiry[7]
+            })
+
+        return jsonify({
+            'status': 200,
+            'enquiries': enquiry_list,
+            'message': 'Enquiries retrieved successfully'
+        })
+
+    except Exception as e:
+        print(f"Error retrieving enquiries: {e}")
+        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
+    finally:
+        if conn:
+            conn.close()
+
+# API route to retrieve an individual enquiry by ID
+@app.route('/api/enquiries/<int:enquiry_id>', methods=['GET'])
+@token_required
+def get_enquiry(enquiry_id):
+    try:
+        # Establish database connection
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
+
+        cursor = conn.cursor()
+
+        # Fetch the specific enquiry by ID
+        cursor.execute("""
+            SELECT [EnquiryID], [Name], [Email], [Phone], [CourseName], [EnquiryMessage], 
+                   [EnquiryDate], [Status]
+            FROM [dbo].[tbgl_V360courseEnquiries]
+            WHERE [EnquiryID] = ? AND [IsDeleted] = 0
+        """, (enquiry_id,))
+
+        enquiry = cursor.fetchone()
+
+        if not enquiry:
+            return jsonify({'status': 404, 'message': f'Enquiry with ID {enquiry_id} not found'}), 404
+
+        # Format the response
+        enquiry_data = {
+            'EnquiryID': enquiry[0],
+            'Name': enquiry[1],
+            'Email': enquiry[2],
+            'Phone': enquiry[3],
+            'CourseName': enquiry[4],
+            'EnquiryMessage': enquiry[5],
+            'EnquiryDate': enquiry[6],
+            'Status': enquiry[7]
+        }
+
+        return jsonify({
+            'status': 200,
+            'enquiry': enquiry_data,
+            'message': f'Enquiry with ID {enquiry_id} retrieved successfully'
+        })
+
+    except Exception as e:
+        print(f"Error retrieving enquiry with ID {enquiry_id}: {e}")
+        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
+    finally:
+        if conn:
+            conn.close()
+
+# Subscribe to Newsletter
+@app.route('/api/newsletter/subscribe', methods=['POST'])
+def subscribe_newsletter():
+    try:
+        data = request.get_json()
+        name = data.get('name')
+        email = data.get('email')
+
+        # Check if name and email are provided and valid
+        if not name or not email or not is_valid_email(email):
+            return jsonify({'status': 400, 'message': 'Name and a valid email are required'}), 400
+
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
+
+        cursor = conn.cursor()
+
+        # Check if the email is already subscribed
+        cursor.execute("""
+            SELECT Email FROM [dbo].[tbgl_NewsletterSignUp] 
+            WHERE Email = ? AND IsActive = 1
+        """, (email,))
+        existing_subscription = cursor.fetchone()
+
+        if existing_subscription:
+            return jsonify({'status': 400, 'message': 'Email is already subscribed'}), 400
+
+        # Insert the new subscription
+        cursor.execute("""
+            INSERT INTO [dbo].[tbgl_NewsletterSignUp] (Name, Email, SignUpDate, Status, IsActive)
+            VALUES (?, ?, GETDATE(), 'Subscribed', 1)
+        """, (name, email))
+        conn.commit()
+
+        return jsonify({'status': 201, 'message': f'Successfully subscribed {name} to the newsletter'}), 201
+
+    except Exception as e:
+        print(f"Error subscribing to newsletter: {e}")
+        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
+
+    finally:
+        if conn:
+            conn.close()
+
+# Unsubscribe from Newsletter
+@app.route('/api/newsletter/unsubscribe', methods=['POST'])
+def unsubscribe_newsletter():
+    try:
+        data = request.get_json()
+        email = data.get('email')
+
+        if not email or not is_valid_email(email):
+            return jsonify({'status': 400, 'message': 'Invalid or missing email'}), 400
+
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
+
+        cursor = conn.cursor()
+
+        # Deactivate the subscription
+        cursor.execute("""
+            UPDATE [dbo].[tbgl_NewsletterSignUp]
+            SET Status = 'Unsubscribed', IsActive = 0
+            WHERE Email = ? AND IsActive = 1
+        """, (email,))
+        conn.commit()
+
+        if cursor.rowcount == 0:
+            return jsonify({'status': 404, 'message': 'Email not found or already unsubscribed'}), 404
+
+        return jsonify({'status': 200, 'message': f'Successfully unsubscribed {email} from the newsletter'}), 200
+
+    except Exception as e:
+        print(f"Error unsubscribing from newsletter: {e}")
+        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
+
+    finally:
+        if conn:
+            conn.close()
+
+# Get all active subscribers (Admin functionality)
+@app.route('/api/newsletter/subscribers', methods=['GET'])
+def get_subscribers():
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
+
+        cursor = conn.cursor()
+
+        # Fetch all active subscribers
+        cursor.execute("""
+            SELECT Name, Email, SignUpDate 
+            FROM [dbo].[tbgl_NewsletterSignUp]
+            WHERE IsActive = 1 AND Status = 'Subscribed'
+        """)
+        subscribers = cursor.fetchall()
+
+        if not subscribers:
+            return jsonify({'status': 404, 'message': 'No active subscribers found'}), 404
+
+        # Format subscribers into a list of dictionaries
+        subscribers_data = [
+            {
+                'Name': subscriber[0],
+                'Email': subscriber[1],
+                'SignUpDate': subscriber[2]
+            }
+            for subscriber in subscribers
+        ]
+
+        return jsonify({
+            'status': 200,
+            'subscribers': subscribers_data,
+            'message': 'Active subscribers retrieved successfully'
+        }), 200
+
+    except Exception as e:
+        print(f"Error retrieving subscribers: {e}")
+        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
+
     finally:
         if conn:
             conn.close()
