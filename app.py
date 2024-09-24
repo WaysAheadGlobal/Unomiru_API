@@ -1422,9 +1422,9 @@ def get_property_reviews(user_id, property_id):
 
         reviews = cursor.fetchall()
 
-        # Query to calculate the average rating for the property
+        # Query to calculate the precise average rating for the property
         cursor.execute("""
-            SELECT AVG(Rating)
+            SELECT AVG(CAST(Rating AS FLOAT))
             FROM [UnomiruAppDB].[dbo].[tbOPT_RatingsReviews]
             WHERE PropertyID = ? AND IsActive = 1 AND IsDeleted = 0
         """, (property_id,))
@@ -1450,7 +1450,7 @@ def get_property_reviews(user_id, property_id):
                 'status': 200,
                 'PropertyID': property_id,
                 'Reviews': review_list,
-                'AverageRating': round(avg_rating, 2),  # Round average rating to 2 decimal places
+                'AverageRating': round(float(avg_rating), 2),  # Round average rating to 2 decimal places
                 'TotalReviews': len(review_list)  # Total number of reviews
             }), 200
         else:
