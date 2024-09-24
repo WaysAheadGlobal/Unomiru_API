@@ -1422,22 +1422,36 @@ def get_property_reviews(user_id, property_id):
 
         reviews = cursor.fetchall()
 
+        # Query to calculate the average rating for the property
+        cursor.execute("""
+            SELECT AVG(Rating)
+            FROM [UnomiruAppDB].[dbo].[tbOPT_RatingsReviews]
+            WHERE PropertyID = ? AND IsActive = 1 AND IsDeleted = 0
+        """, (property_id,))
+        
+        avg_rating = cursor.fetchone()[0]  # Fetch the average rating
+        
+        if avg_rating is None:
+            avg_rating = 0  # Set to 0 if there are no reviews
+
         # Format the result
         review_list = []
         for review in reviews:
             review_list.append({
-                'ReviewText': review.ReviewText,
-                'Rating': review.Rating,
-                'CreatedDate': review.CreatedDate.strftime("%Y-%m-%d %H:%M:%S"),
-                'FirstName': review.FirstName,
-                'LastName': review.LastName
+                'ReviewText': review[0],   # ReviewText
+                'Rating': review[1],       # Rating
+                'CreatedDate': review[2].strftime("%Y-%m-%d %H:%M:%S"),  # Format the date
+                'FirstName': review[3],    # FirstName
+                'LastName': review[4]      # LastName
             })
 
         if review_list:
             return jsonify({
                 'status': 200,
                 'PropertyID': property_id,
-                'Reviews': review_list
+                'Reviews': review_list,
+                'AverageRating': round(avg_rating, 2),  # Round average rating to 2 decimal places
+                'TotalReviews': len(review_list)  # Total number of reviews
             }), 200
         else:
             return jsonify({
