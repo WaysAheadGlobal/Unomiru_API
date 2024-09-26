@@ -13,6 +13,7 @@ import pytesseract
 from PIL import Image
 import tempfile
 import cv2
+import numpy as np
 
 from flask_cors import CORS 
 
