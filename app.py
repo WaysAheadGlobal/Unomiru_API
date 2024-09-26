@@ -1174,7 +1174,7 @@ def extract_info_from_card(image_path):
         email = re.search(email_pattern, text)
         phone = re.search(phone_pattern, text)
         company = re.search(company_pattern, text)
-        designation = re.search(designation_pattern, text)
+        designation = re.search(designation_pattern, text, re.IGNORECASE)
         address = re.search(address_pattern, text)
 
         # Build the result dictionary with defaults if not found
