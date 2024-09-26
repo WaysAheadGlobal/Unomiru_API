@@ -1209,6 +1209,8 @@ def preprocess_image(image_path):
 # Function to extract relevant information using improved logic
 def extract_info_from_card(image_path):
     try:
+        pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'
+
         # Preprocess the image for better OCR accuracy
         preprocessed_image_path = preprocess_image(image_path)
 
