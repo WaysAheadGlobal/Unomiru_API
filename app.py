@@ -1167,7 +1167,7 @@ def extract_info_from_card(image_path):
         email_pattern = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
         phone_pattern = r'(\+?\d{1,3}[-.\s]?)?(\(?\d{1,4}?\)?[-.\s]?)?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}'
         company_pattern = r'\b[A-Z][a-zA-Z]+(?:\s[A-Za-z]+)?(?:\s(?:Corporation|Inc|Ltd|LLC|Group|Technologies|Solutions|Corp|Pvt|Company|Co|Pvt. Ltd.))?\b'
-        designation_pattern = r'\b(CEO|CTO|Manager|Director|Engineer|Consultant|Developer|Founder|President|Partner|Sales|Marketing|Chief Technology Office|Business Head|Head|HR Executive|Marketing Head)\b'
+        designation_pattern = r'\b(CEO|CTO|Manager|Director|Engineer|Consultant|Developer|Founder|President|Partner|Sales|Marketing|Chief Technology Officer|Business Head|Head|HR Executive|Marketing Head)\b'
         address_pattern = r'\d{1,5}\s[A-Za-z0-9.,\s]+(?:\b[A-Za-z]+\b[,.\s]+)+(?:[A-Za-z]{2,},?\s?\d{5,6}|PO Box\s?\d{1,6}|[A-Za-z]+\s[A-Za-z]+,\s?[A-Za-z]+)'
         # Extracting using regex
         name = re.search(name_pattern, text)
