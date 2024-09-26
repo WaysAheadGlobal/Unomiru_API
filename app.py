@@ -1153,92 +1153,62 @@ def guest_vr_discover_listing():
             conn.close()
 
 #Opportunity API Part starts here
-# Function to correct skew (deskew) using OpenCV
-def deskew_image(img):
+def preprocess_image(image_path):
+    
+    img = cv2.imread(image_path)
+    
     # Convert to grayscale
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    # Invert colors to make text white and background black
-    gray = cv2.bitwise_not(gray)
     
-    # Thresholding the image to a binary image
-    thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
-
-    # Find coordinates of all non-zero pixels
-    coords = np.column_stack(np.where(thresh > 0))
+    # Apply a mild Gaussian blur to remove noise
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     
-    # Find the angle to rotate to deskew
-    angle = cv2.minAreaRect(coords)[-1]
-    if angle < -5 or angle > 5:  # Deskew only if the angle is significant
-        if angle < -45:
-            angle = -(90 + angle)
-        else:
-            angle = -angle
-
-        # Rotate the image to deskew
-        (h, w) = img.shape[:2]
-        M = cv2.getRotationMatrix2D((w // 2, h // 2), angle, 1.0)
-        deskewed = cv2.warpAffine(img, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
-        return deskewed
-    else:
-        return img  # Return the original if no significant skew
-
-# Function to preprocess the image for better accuracy
-def preprocess_image(image_path):
-    # Read the image using OpenCV
-    img = cv2.imread(image_path)
-
-    # Deskew the image if necessary
-    deskewed_img = deskew_image(img)
-
-    # Convert to grayscale
-    gray = cv2.cvtColor(deskewed_img, cv2.COLOR_BGR2GRAY)
-
-    # Apply adaptive thresholding (binarization)
-    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
-
-    # Use dilation to strengthen text
-    kernel = np.ones((1, 1), np.uint8)
-    dilated = cv2.dilate(thresh, kernel, iterations=1)
+    # Threshold the image for binarization
+    _, binary_img = cv2.threshold(blurred, 120, 255, cv2.THRESH_BINARY)
 
     # Save the preprocessed image temporarily for OCR
     preprocessed_image_path = image_path.replace(".png", "_preprocessed.png")
-    cv2.imwrite(preprocessed_image_path, dilated)
+    cv2.imwrite(preprocessed_image_path, binary_img)
 
     return preprocessed_image_path
 
-# Function to extract relevant information using improved logic
+# Function to extract relevant information using better logic
 def extract_info_from_card(image_path):
     try:
-        pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'
-
-        # Preprocess the image for better OCR accuracy
+        
         preprocessed_image_path = preprocess_image(image_path)
-
+        pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'
         # Use pytesseract to extract text from the preprocessed image
         img = Image.open(preprocessed_image_path)
         text = pytesseract.image_to_string(img)
 
-        # Define patterns and improve extraction logic for better results
+        # Patterns for extracting information
 
-        # Improved name extraction - names often start with a capital letter and have first + last names
-        name_pattern = r'\b[A-Z][a-z]+(?:\s[A-Z][a-z]+)+\b'
-        
-        # Improved designation extraction - using common designations and logical proximity to the name
-        designation_pattern = r'\b(CEO|CTO|Founder|Manager|Director|Engineer|Consultant|Developer|President|Partner|Sales|Marketing|Lead|Head)\b'
+        # Name pattern: Assuming name has capitalized first letter and may contain more than one word
+        name_pattern = r'\b[A-Z][a-zA-Z]+(?:\s[A-Z][a-zA-Z]+)*\b'
 
-        # Company extraction - often located near designation, with company-like patterns
+        # Designation pattern: common designations
+        designation_pattern = r'\b(CEO|CTO|Founder|Manager|Director|Engineer|Consultant|Developer|Sales|Marketing|Lead|Head|Partner)\b'
+
+        # Company pattern: detecting typical company name patterns
         company_pattern = r'\b[A-Z][a-zA-Z]+(?:\s[A-Za-z]+)?(?:\s(?:Corporation|Inc|Ltd|LLC|Group|Technologies|Solutions|Corp|Pvt|Company|Co))?\b'
 
-        # Improved address pattern for India and UAE, capturing postal codes and PO Box formats
+        # Address pattern: Handling addresses with postal codes and common address indicators
         address_pattern = r'\d{1,5}\s[A-Za-z0-9.,\s]+(?:\b[A-Za-z]+\b[,.\s]+)+(?:[A-Za-z]{2,},?\s?\d{5,6}|PO Box\s?\d{1,6}|[A-Za-z]+\s[A-Za-z]+,\s?[A-Za-z]+)'
 
-        # Extracting using regex with logic for filtering and validation
+        # Email pattern: extracting typical email addresses
+        email_pattern = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
+
+        # Phone pattern: extracting international and local phone numbers
+        phone_pattern = r'(\+?\d{1,3}[-.\s]?)?(\(?\d{1,4}?\)?[-.\s]?)?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}'
+
+        # Extracting information using regex
         name = re.search(name_pattern, text)
         designation = re.search(designation_pattern, text)
         company = re.search(company_pattern, text)
         address = re.search(address_pattern, text)
-        email = re.search(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+', text)
-        phone = re.search(r'(\+?\d{1,3}[-.\s]?)?(\(?\d{1,4}?\)?[-.\s]?)?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}', text)
+        email = re.search(email_pattern, text)
+        phone = re.search(phone_pattern, text)
 
         # Build the result dictionary with defaults if not found
         result = {
@@ -1257,6 +1227,7 @@ def extract_info_from_card(image_path):
 
     except Exception as e:
         return {"error": str(e)}
+
 
 @app.route('/api/extract', methods=['POST'])
 @token_required  # Require token for this route
