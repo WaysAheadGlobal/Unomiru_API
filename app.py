@@ -1183,7 +1183,7 @@ def extract_info_from_card(image_path):
             'email': email.group(0) if email else 'Not Found',
             'phone': phone.group(0) if phone else 'Not Found'
         }
-        os.remove(preprocessed_image_path)
+        os.remove(image_path)
 
         return result
 
