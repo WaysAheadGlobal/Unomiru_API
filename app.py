@@ -1192,6 +1192,7 @@ def preprocess_image(image_path):
 
 def extract_info_from_card(image_path):
     try:
+        pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'
         preprocessed_image_path = preprocess_image(image_path)
         img = Image.open(preprocessed_image_path)
         text = pytesseract.image_to_string(img)
