@@ -1151,31 +1151,67 @@ def guest_vr_discover_listing():
             conn.close()
 
 #Opportunity API Part starts here
+# Function to correct skew (deskew) using OpenCV
+def deskew_image(img):
+    # Convert to grayscale
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    # Invert colors to make text white and background black
+    gray = cv2.bitwise_not(gray)
+    
+    # Thresholding the image to a binary image
+    thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
+
+    # Find coordinates of all non-zero pixels
+    coords = np.column_stack(np.where(thresh > 0))
+    
+    # Find the angle to rotate to deskew
+    angle = cv2.minAreaRect(coords)[-1]
+    if angle < -45:
+        angle = -(90 + angle)
+    else:
+        angle = -angle
+    (h, w) = img.shape[:2]
+    M = cv2.getRotationMatrix2D((w // 2, h // 2), angle, 1.0)
+    deskewed = cv2.warpAffine(img, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    return deskewed
+
+def preprocess_image(image_path):
+    img = cv2.imread(image_path)
+    deskewed_img = deskew_image(img)
+    gray = cv2.cvtColor(deskewed_img, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+    kernel = np.ones((1, 1), np.uint8)
+    dilated = cv2.dilate(thresh, kernel, iterations=1)
+    preprocessed_image_path = image_path.replace(".png", "_preprocessed.png")
+    cv2.imwrite(preprocessed_image_path, dilated)
+    return preprocessed_image_path
+
+
 def extract_info_from_card(image_path):
     try:
-        pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'
-        img = Image.open(image_path)
+        preprocessed_image_path = preprocess_image(image_path)
+        img = Image.open(preprocessed_image_path)
         text = pytesseract.image_to_string(img)
-        name_pattern = r'\b[A-Z][a-z]*\s[A-Z][a-z]+(?:\s[A-Z][a-z]+)?\b'
-        email_pattern = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
-        phone_pattern = r'(\+?\d{1,3}[-.\s]?)?(\(?\d{1,4}?\)?[-.\s]?)?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}'
+        name_pattern = r'\b[A-Z][a-z]+(?:\s[A-Z][a-z]+)+\b'
+        designation_pattern = r'\b(CEO|CTO|Founder|Manager|Director|Engineer|Consultant|Developer|President|Partner|Sales|Marketing|Lead|Head)\b'
         company_pattern = r'\b[A-Z][a-zA-Z]+(?:\s[A-Za-z]+)?(?:\s(?:Corporation|Inc|Ltd|LLC|Group|Technologies|Solutions|Corp|Pvt|Company|Co))?\b'
-        designation_pattern = r'\b(CEO|CTO|Manager|Director|Engineer|Consultant|Developer|Founder|President|Partner|Sales|Marketing)\b'
         address_pattern = r'\d{1,5}\s[A-Za-z0-9.,\s]+(?:\b[A-Za-z]+\b[,.\s]+)+(?:[A-Za-z]{2,},?\s?\d{5,6}|PO Box\s?\d{1,6}|[A-Za-z]+\s[A-Za-z]+,\s?[A-Za-z]+)'
         name = re.search(name_pattern, text)
-        email = re.search(email_pattern, text)
-        phone = re.search(phone_pattern, text)
-        company = re.search(company_pattern, text)
         designation = re.search(designation_pattern, text)
+        company = re.search(company_pattern, text)
         address = re.search(address_pattern, text)
+        email = re.search(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+', text)
+        phone = re.search(r'(\+?\d{1,3}[-.\s]?)?(\(?\d{1,4}?\)?[-.\s]?)?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}', text)
         result = {
             'name': name.group(0) if name else 'Not Found',
-            'email': email.group(0) if email else 'Not Found',
-            'phone': phone.group(0) if phone else 'Not Found',
-            'company': company.group(0) if company else 'Not Found',
             'designation': designation.group(0) if designation else 'Not Found',
-            'address': address.group(0) if address else 'Not Found'
+            'company': company.group(0) if company else 'Not Found',
+            'address': address.group(0) if address else 'Not Found',
+            'email': email.group(0) if email else 'Not Found',
+            'phone': phone.group(0) if phone else 'Not Found'
         }
+        os.remove(preprocessed_image_path)
         return result
     except Exception as e:
         return {"error": str(e)}
