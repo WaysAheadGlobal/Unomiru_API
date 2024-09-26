@@ -1153,54 +1153,18 @@ def guest_vr_discover_listing():
             conn.close()
 
 #Opportunity API Part starts here
-def preprocess_image(image_path):
-    
-    img = cv2.imread(image_path)
-    
-    # Convert to grayscale
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    
-    # Apply a mild Gaussian blur to remove noise
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    
-    # Threshold the image for binarization
-    _, binary_img = cv2.threshold(blurred, 120, 255, cv2.THRESH_BINARY)
-
-    # Save the preprocessed image temporarily for OCR
-    preprocessed_image_path = image_path.replace(".png", "_preprocessed.png")
-    cv2.imwrite(preprocessed_image_path, binary_img)
-
-    return preprocessed_image_path
-
-# Function to extract relevant information using better logic
 def extract_info_from_card(image_path):
-    try:
-        
-        preprocessed_image_path = preprocess_image(image_path)
+    try:        
         pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'
-        # Use pytesseract to extract text from the preprocessed image
-        img = Image.open(preprocessed_image_path)
+        img = Image.open(image_path)
         text = pytesseract.image_to_string(img)
 
-        # Patterns for extracting information
-
-        # Name pattern: Assuming name has capitalized first letter and may contain more than one word
-        name_pattern = r'\b[A-Z][a-zA-Z]+(?:\s[A-Z][a-zA-Z]+)*\b'
-
-        # Designation pattern: common designations
-        designation_pattern = r'\b(CEO|CTO|Founder|Manager|Director|Engineer|Consultant|Developer|Sales|Marketing|Lead|Head|Partner)\b'
-
-        # Company pattern: detecting typical company name patterns
-        company_pattern = r'\b[A-Z][a-zA-Z]+(?:\s[A-Za-z]+)?(?:\s(?:Corporation|Inc|Ltd|LLC|Group|Technologies|Solutions|Corp|Pvt|Company|Co))?\b'
-
-        # Address pattern: Handling addresses with postal codes and common address indicators
-        address_pattern = r'\d{1,5}\s[A-Za-z0-9.,\s]+(?:\b[A-Za-z]+\b[,.\s]+)+(?:[A-Za-z]{2,},?\s?\d{5,6}|PO Box\s?\d{1,6}|[A-Za-z]+\s[A-Za-z]+,\s?[A-Za-z]+)'
-
-        # Email pattern: extracting typical email addresses
+        name_pattern = r'\b[A-Z][a-z]*\s[A-Z][a-z]+(?:\s[A-Z][a-z]+)?\b'
         email_pattern = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
-
-        # Phone pattern: extracting international and local phone numbers
         phone_pattern = r'(\+?\d{1,3}[-.\s]?)?(\(?\d{1,4}?\)?[-.\s]?)?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}'
+        company_pattern = r'\b[A-Z][a-zA-Z]+(?:\s[A-Za-z]+)?(?:\s(?:Corporation|Inc|Ltd|LLC|Group|Technologies|Solutions|Corp|Pvt|Company|Co))?\b'
+        designation_pattern = r'\b(CEO|CTO|Manager|Director|Engineer|Consultant|Developer|Founder|President|Partner|Sales|Marketing)\b'
+        address_pattern = r'\d{1,5}\s[A-Za-z0-9.,\s]+(?:\b[A-Za-z]+\b[,.\s]+)+[A-Za-z]{2,},?\s?\d{5,6}?' 
 
         # Extracting information using regex
         name = re.search(name_pattern, text)
@@ -1219,8 +1183,6 @@ def extract_info_from_card(image_path):
             'email': email.group(0) if email else 'Not Found',
             'phone': phone.group(0) if phone else 'Not Found'
         }
-
-        # Remove preprocessed image after extraction
         os.remove(preprocessed_image_path)
 
         return result
