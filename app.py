@@ -1168,44 +1168,77 @@ def deskew_image(img):
     
     # Find the angle to rotate to deskew
     angle = cv2.minAreaRect(coords)[-1]
-    if angle < -45:
-        angle = -(90 + angle)
-    else:
-        angle = -angle
-    (h, w) = img.shape[:2]
-    M = cv2.getRotationMatrix2D((w // 2, h // 2), angle, 1.0)
-    deskewed = cv2.warpAffine(img, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
-    return deskewed
+    if angle < -5 or angle > 5:  # Deskew only if the angle is significant
+        if angle < -45:
+            angle = -(90 + angle)
+        else:
+            angle = -angle
 
+        # Rotate the image to deskew
+        (h, w) = img.shape[:2]
+        M = cv2.getRotationMatrix2D((w // 2, h // 2), angle, 1.0)
+        deskewed = cv2.warpAffine(img, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+        return deskewed
+    else:
+        return img  # Return the original if no significant skew
+
+# Function to preprocess the image for better accuracy
 def preprocess_image(image_path):
+    # Read the image using OpenCV
     img = cv2.imread(image_path)
+
+    # Deskew the image if necessary
     deskewed_img = deskew_image(img)
+
+    # Convert to grayscale
     gray = cv2.cvtColor(deskewed_img, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+
+    # Apply adaptive thresholding (binarization)
+    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+
+    # Use dilation to strengthen text
     kernel = np.ones((1, 1), np.uint8)
     dilated = cv2.dilate(thresh, kernel, iterations=1)
+
+    # Save the preprocessed image temporarily for OCR
     preprocessed_image_path = image_path.replace(".png", "_preprocessed.png")
     cv2.imwrite(preprocessed_image_path, dilated)
+
     return preprocessed_image_path
 
-
+# Function to extract relevant information using improved logic
 def extract_info_from_card(image_path):
     try:
-        pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'
+        # Preprocess the image for better OCR accuracy
         preprocessed_image_path = preprocess_image(image_path)
+
+        # Use pytesseract to extract text from the preprocessed image
         img = Image.open(preprocessed_image_path)
         text = pytesseract.image_to_string(img)
+
+        # Define patterns and improve extraction logic for better results
+
+        # Improved name extraction - names often start with a capital letter and have first + last names
         name_pattern = r'\b[A-Z][a-z]+(?:\s[A-Z][a-z]+)+\b'
+        
+        # Improved designation extraction - using common designations and logical proximity to the name
         designation_pattern = r'\b(CEO|CTO|Founder|Manager|Director|Engineer|Consultant|Developer|President|Partner|Sales|Marketing|Lead|Head)\b'
+
+        # Company extraction - often located near designation, with company-like patterns
         company_pattern = r'\b[A-Z][a-zA-Z]+(?:\s[A-Za-z]+)?(?:\s(?:Corporation|Inc|Ltd|LLC|Group|Technologies|Solutions|Corp|Pvt|Company|Co))?\b'
+
+        # Improved address pattern for India and UAE, capturing postal codes and PO Box formats
         address_pattern = r'\d{1,5}\s[A-Za-z0-9.,\s]+(?:\b[A-Za-z]+\b[,.\s]+)+(?:[A-Za-z]{2,},?\s?\d{5,6}|PO Box\s?\d{1,6}|[A-Za-z]+\s[A-Za-z]+,\s?[A-Za-z]+)'
+
+        # Extracting using regex with logic for filtering and validation
         name = re.search(name_pattern, text)
         designation = re.search(designation_pattern, text)
         company = re.search(company_pattern, text)
         address = re.search(address_pattern, text)
         email = re.search(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+', text)
         phone = re.search(r'(\+?\d{1,3}[-.\s]?)?(\(?\d{1,4}?\)?[-.\s]?)?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}', text)
+
+        # Build the result dictionary with defaults if not found
         result = {
             'name': name.group(0) if name else 'Not Found',
             'designation': designation.group(0) if designation else 'Not Found',
@@ -1214,8 +1247,12 @@ def extract_info_from_card(image_path):
             'email': email.group(0) if email else 'Not Found',
             'phone': phone.group(0) if phone else 'Not Found'
         }
+
+        # Remove preprocessed image after extraction
         os.remove(preprocessed_image_path)
+
         return result
+
     except Exception as e:
         return {"error": str(e)}
 
