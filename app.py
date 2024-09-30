@@ -746,16 +746,18 @@ def get_vr360_listing(user_id, vr360_id):
 
         cursor = conn.cursor()
 
-        # SQL query to fetch the VR360 details by ID
+        # SQL query to fetch the VR360 details by ID with country name join
         cursor.execute("""
-            SELECT [VR360ID], [CategoryID], [SubCategoryID], [Country], [State], 
-                   [City], [PropertyName], [PropertyDescription], [PropertyImageURL], 
-                   [CategoryTitle], [AvgPropertyRating], [ButtonTitle], [ButtonURL], 
-                   [PartofPackage], [SortOrder], [IsActive], [IsDeleted], 
-                   [CreatedDate], [ModifiedDate],
-                   [PropertyFeatures], [FeaturesHeading], [CityName]  -- New columns added
-            FROM [dbo].[tbDS_VR360]
-            WHERE VR360ID = ? AND IsActive = 1 AND IsDeleted = 0
+            SELECT vr.[VR360ID], vr.[CategoryID], vr.[SubCategoryID], vr.[Country], vr.[State], 
+                   vr.[City], vr.[PropertyName], vr.[PropertyDescription], vr.[PropertyImageURL], 
+                   vr.[CategoryTitle], vr.[AvgPropertyRating], vr.[ButtonTitle], vr.[ButtonURL], 
+                   vr.[PartofPackage], vr.[SortOrder], vr.[IsActive], vr.[IsDeleted], 
+                   vr.[CreatedDate], vr.[ModifiedDate],
+                   vr.[PropertyFeatures], vr.[FeaturesHeading], vr.[CityName], 
+                   cn.[CountryName]  -- Fetch country name from tbMS_Country
+            FROM [dbo].[tbDS_VR360] vr
+            LEFT JOIN [dbo].[tbMS_Country] cn ON vr.[Country] = cn.[CountryID]  -- Join with tbMS_Country table
+            WHERE vr.[VR360ID] = ? AND vr.[IsActive] = 1 AND vr.[IsDeleted] = 0
         """, (vr360_id,))
 
         property = cursor.fetchone()
@@ -767,7 +769,7 @@ def get_vr360_listing(user_id, vr360_id):
             'VR360ID': property[0],
             'CategoryID': property[1],
             'SubCategoryID': property[2],
-            'Country': property[3],
+            'Country': property[22],  # CountryName instead of CountryID
             'State': property[4],
             'City': property[5],
             'PropertyName': property[6],
@@ -783,9 +785,9 @@ def get_vr360_listing(user_id, vr360_id):
             'IsDeleted': property[16],
             'CreatedDate': property[17],
             'ModifiedDate': property[18],
-            'PropertyFeatures': property[19],    # New field
-            'FeaturesHeading': property[20],     # New field
-            'CityName': property[21]             # New field
+            'PropertyFeatures': property[19],
+            'FeaturesHeading': property[20],
+            'CityName': property[21]
         }
 
         return jsonify({
