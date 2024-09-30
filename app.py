@@ -752,7 +752,8 @@ def get_vr360_listing(user_id, vr360_id):
                    [City], [PropertyName], [PropertyDescription], [PropertyImageURL], 
                    [CategoryTitle], [AvgPropertyRating], [ButtonTitle], [ButtonURL], 
                    [PartofPackage], [SortOrder], [IsActive], [IsDeleted], 
-                   [CreatedDate], [ModifiedDate]
+                   [CreatedDate], [ModifiedDate],
+                   [PropertyFeatures], [FeaturesHeading], [CityName]  -- New columns added
             FROM [dbo].[tbDS_VR360]
             WHERE VR360ID = ? AND IsActive = 1 AND IsDeleted = 0
         """, (vr360_id,))
@@ -781,7 +782,10 @@ def get_vr360_listing(user_id, vr360_id):
             'IsActive': property[15],
             'IsDeleted': property[16],
             'CreatedDate': property[17],
-            'ModifiedDate': property[18]
+            'ModifiedDate': property[18],
+            'PropertyFeatures': property[19],    # New field
+            'FeaturesHeading': property[20],     # New field
+            'CityName': property[21]             # New field
         }
 
         return jsonify({
@@ -796,7 +800,6 @@ def get_vr360_listing(user_id, vr360_id):
     finally:
         if conn:
             conn.close()
-
 
 # Search API for VR360 using single search input for multiple columns
 @app.route('/api/vr360/search', methods=['POST'])
