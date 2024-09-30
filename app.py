@@ -754,7 +754,7 @@ def get_vr360_listing(user_id, vr360_id):
                    vr.[PartofPackage], vr.[SortOrder], vr.[IsActive], vr.[IsDeleted], 
                    vr.[CreatedDate], vr.[ModifiedDate],
                    vr.[PropertyFeatures], vr.[FeaturesHeading], vr.[CityName], 
-                   cn.[CountryName]  -- Fetch country name from tbMS_Country
+                   cn.[Name]  -- Fetch country name from tbMS_Country
             FROM [dbo].[tbDS_VR360] vr
             LEFT JOIN [dbo].[tbMS_Country] cn ON vr.[Country] = cn.[CountryID]  -- Join with tbMS_Country table
             WHERE vr.[VR360ID] = ? AND vr.[IsActive] = 1 AND vr.[IsDeleted] = 0
