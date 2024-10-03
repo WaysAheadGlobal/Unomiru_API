@@ -1403,6 +1403,51 @@ def save_or_update_property(user_id):
         print(f"Error saving or updating property: {e}")
         return jsonify({'status': 500, 'message': 'An error occurred while saving or updating the property'}), 500
 
+@app.route('/api/user/properties', methods=['GET'])
+@token_required
+def get_user_properties(user_id):
+    try:
+        connection = get_db_connection()
+        if not connection:
+            return jsonify({'status': 500, 'message': 'Database connection failed'}), 500
+        
+        cursor = connection.cursor()
+
+        # Query to get all properties for the authenticated user
+        query = """
+            SELECT PropertyID, PName, Address, Latitude, Longitude, Designation, 
+                   CompanyName, MobileNumber, CreatedAt 
+            FROM [dbo].[tbOPT_Property] 
+            WHERE UserID = ? AND IsDeleted = 0
+        """
+        cursor.execute(query, (user_id,))  # Use user_id from the token to get only this user's properties
+        properties = cursor.fetchall()
+
+        if properties:
+            property_list = []
+            for property in properties:
+                property_list.append({
+                    'PropertyID': property[0],
+                    'PName': property[1],
+                    'Address': property[2],
+                    'Latitude': property[3],
+                    'Longitude': property[4],
+                    'Designation': property[5],
+                    'CompanyName': property[6],
+                    'MobileNumber': property[7],
+                    'CreatedAt': property[8].isoformat()
+                })
+            cursor.close()
+            return jsonify({'status': 200, 'properties': property_list}), 200
+        else:
+            cursor.close()
+            return jsonify({'status': 404, 'message': 'No properties found for this user'}), 404
+
+    except Exception as e:
+        print(f"Error retrieving properties: {e}")
+        return jsonify({'status': 500, 'message': 'An error occurred while retrieving properties'}), 500
+
+
 # Route to get all properties
 @app.route('/api/properties', methods=['GET'])
 @token_required
@@ -1439,6 +1484,7 @@ def get_all_properties(user_id):
     except Exception as e:
         print(f"Error retrieving properties: {e}")
         return jsonify({'status': 500, 'message': 'An error occurred while retrieving properties'}), 500
+
 
 @app.route('/api/property/search', methods=['POST'])
 @token_required
@@ -1553,7 +1599,6 @@ def get_property_by_id(user_id, property_id):
     except Exception as e:
         print(f"Error retrieving property: {e}")
         return jsonify({'status': 500, 'message': 'An error occurred while retrieving the property'}), 500
-    
 # Route to submit a review and rating
 @app.route('/api/property/review/<int:property_id>', methods=['POST'])
 @token_required
