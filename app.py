@@ -13,7 +13,11 @@ import pytesseract
 from PIL import Image
 import tempfile
 import cv2
+import uuid
 import numpy as np
+import os
+from werkzeug.utils import secure_filename
+
 
 from flask_cors import CORS 
 
@@ -23,6 +27,37 @@ CORS(app)
 
 # Secret key for JWT encoding/decoding
 SECRET_KEY = 'your_secret_key'
+
+# Define the upload folder and allowed extensions
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))  # Gets the current directory
+UPLOAD_FOLDER = os.path.join(CURRENT_DIR, 'uploads')  # Base upload directory
+SELFIE_FOLDER = os.path.join(UPLOAD_FOLDER, 'users')  # Subfolder for selfies
+PROPERTY_FOLDER = os.path.join(UPLOAD_FOLDER, 'property')  # Subfolder for property images
+VISITING_CARD_FOLDER = os.path.join(UPLOAD_FOLDER, 'visitingcards')  # Subfolder for visiting cards
+REVIEWS_FOLDER = os.path.join(UPLOAD_FOLDER, 'reviews')  # Subfolder for reviews images
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+
+# Ensure all folders exist
+os.makedirs(SELFIE_FOLDER, exist_ok=True)
+os.makedirs(PROPERTY_FOLDER, exist_ok=True)
+os.makedirs(VISITING_CARD_FOLDER, exist_ok=True)
+os.makedirs(REVIEWS_FOLDER, exist_ok=True)
+
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+# Function to check allowed file extensions
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+# Function to save the file if it exists and has an allowed extension
+def save_file(file, folder):
+    if file and allowed_file(file.filename):
+        # Create a secure and unique filename
+        unique_filename = f"{uuid.uuid4().hex}_{secure_filename(file.filename)}"
+        filepath = os.path.join(folder, unique_filename)
+        file.save(filepath)
+        return filepath  # Return the path for DB storage
+    return None
 
 # Your additional code here...
 
@@ -892,11 +927,73 @@ def search_vr360(user_id):
         if conn:
             conn.close()
 
+import os
+import uuid
+from werkzeug.utils import secure_filename
+from flask import request, jsonify
+
+# Define the folder where uploaded images will be stored
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))  # Gets the current directory
+UPLOAD_FOLDER = os.path.join(CURRENT_DIR, 'uploads', 'reviews')  # Path to 'uploads/reviews' folder
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+# Function to check allowed file extensions
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+# Function to generate a unique filename
+def generate_unique_filename(filename):
+    extension = filename.rsplit('.', 1)[1].lower()  # Get the file extension
+    unique_filename = f"{uuid.uuid4()}.{extension}"  # Create unique filename using UUID
+    return unique_filename
+
+import os
+import uuid
+from werkzeug.utils import secure_filename
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+
+# Initialize the Flask application
+app = Flask(__name__)
+CORS(app)
+
+# Secret key for JWT encoding/decoding
+SECRET_KEY = 'your_secret_key'
+
+# Define the upload folders and allowed extensions
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))  # Gets the current directory
+UPLOAD_FOLDER = os.path.join(CURRENT_DIR, 'uploads')  # Base upload directory
+REVIEWS_FOLDER = os.path.join(UPLOAD_FOLDER, 'reviews')  # Subfolder for reviews
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+
+# Ensure the reviews folder exists
+os.makedirs(REVIEWS_FOLDER, exist_ok=True)
+
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+# Function to check allowed file extensions
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+# Function to save files in the specified folder
+def save_file(file, folder):
+    if file and allowed_file(file.filename):
+        # Create a secure and unique filename
+        unique_filename = f"{uuid.uuid4().hex}_{secure_filename(file.filename)}"
+        filepath = os.path.join(folder, unique_filename)
+        file.save(filepath)
+        return filepath  # Return the path for DB storage
+    return None
+
 @app.route('/api/vr-review/<int:vr360_id>', methods=['POST'])
 @token_required
 def submit_review_comment(user_id, vr360_id):
     try:
-        data = request.get_json()
+        # Parse form data and get the image (optional)
+        data = request.form  # Use form to get both file and JSON data
+        image = request.files.get('ReviewImage')  # Get the image file from the request
 
         # Ensure required fields are provided
         rating = data.get('Rating')
@@ -904,6 +1001,14 @@ def submit_review_comment(user_id, vr360_id):
 
         if rating is None or not review_text:
             return jsonify({'status': 400, 'message': 'Rating and ReviewText are required'}), 400
+
+        # Save the review image (if provided and valid)
+        review_image_path = save_file(image, REVIEWS_FOLDER)
+
+        # Generate a URL for the saved image
+        review_image_url = None
+        if review_image_path:
+            review_image_url = f"{request.host_url}uploads/reviews/{os.path.basename(review_image_path)}"
 
         # Establish the database connection
         conn = get_db_connection()
@@ -927,18 +1032,19 @@ def submit_review_comment(user_id, vr360_id):
                 'message': 'User has already submitted an active review for this VR360ID'
             }), 400
 
-        # Insert the new review into the tbDS_RatingsReviews table
+        # Insert the new review into the tbDS_RatingsReviews table, including the image URL if provided
         cursor.execute("""
             INSERT INTO [UnomiruAppDB].[dbo].[tbDS_RatingsReviews] 
-            (VR360ID, UserID, Rating, ReviewText, IsActive, IsDeleted, CreatedDate)
-            VALUES (?, ?, ?, ?, 1, 0, GETDATE())
-        """, (vr360_id, user_id, rating, review_text))
+            (VR360ID, UserID, Rating, ReviewText, ReviewsImageUrl, IsActive, IsDeleted, CreatedDate)
+            VALUES (?, ?, ?, ?, ?, 1, 0, GETDATE())
+        """, (vr360_id, user_id, rating, review_text, review_image_url))
 
         conn.commit()
 
         return jsonify({
             'status': 201,
-            'message': f'Review successfully submitted for VR360ID {vr360_id}'
+            'message': f'Review successfully submitted for VR360ID {vr360_id}',
+            'image_url': review_image_url
         }), 201
 
     except Exception as e:
@@ -948,8 +1054,9 @@ def submit_review_comment(user_id, vr360_id):
         if conn:
             conn.close()
 
+           
 @app.route('/api/vr-reviews/<int:vr360_id>', methods=['GET'])
-@token_required  # Assuming you want to apply the same token authentication as in the property reviews
+@token_required  # Assuming you are using the same token-based authentication
 def get_reviews(user_id, vr360_id):
     try:
         # Establish the database connection
@@ -959,14 +1066,15 @@ def get_reviews(user_id, vr360_id):
 
         cursor = conn.cursor()
 
-        # Query to get all reviews for the specified VR360, including user first and last names
+        # Query to get all reviews for the specified VR360, including user first and last names, and review image URL
         cursor.execute("""
             SELECT 
                 r.ReviewText, 
                 r.Rating, 
                 r.CreatedDate, 
                 u.FirstName, 
-                u.LastName
+                u.LastName,
+                r.ReviewsImageUrl  -- Fetch the review image URL
             FROM [UnomiruAppDB].[dbo].[tbDS_RatingsReviews] AS r
             JOIN [UnomiruAppDB].[dbo].[tbgl_User] AS u ON r.UserID = u.UserId
             WHERE r.VR360ID = ? AND r.IsActive = 1 AND r.IsDeleted = 0
@@ -974,7 +1082,7 @@ def get_reviews(user_id, vr360_id):
 
         reviews = cursor.fetchall()
 
-        # Query to calculate the precise average rating for the VR360ID
+        # Query to calculate the average rating for the VR360ID
         cursor.execute("""
             SELECT AVG(CAST(Rating AS FLOAT))
             FROM [UnomiruAppDB].[dbo].[tbDS_RatingsReviews]
@@ -983,40 +1091,44 @@ def get_reviews(user_id, vr360_id):
         
         avg_rating = cursor.fetchone()[0]  # Fetch the average rating
         
-        if avg_rating is None:
-            avg_rating = 0  # Set to 0 if there are no reviews
-
-        # Format the result
-        review_list = []
-        for review in reviews:
-            review_list.append({
-                'ReviewText': review[0],   # ReviewText
-                'Rating': review[1],       # Rating
-                'CreatedDate': review[2].strftime("%Y-%m-%d %H:%M:%S"),  # Format the date
-                'FirstName': review[3],    # FirstName
-                'LastName': review[4]      # LastName
-            })
-
-        if review_list:
-            return jsonify({
-                'status': 200,
-                'VR360ID': vr360_id,
-                'Reviews': review_list,
-                'AverageRating': round(float(avg_rating), 2),  # Round average rating to 2 decimal places
-                'TotalReviews': len(review_list)  # Total number of reviews
-            }), 200
-        else:
+        # Handle no reviews case
+        if not reviews:
             return jsonify({
                 'status': 404,
                 'message': f'No reviews found for VR360ID {vr360_id}'
             }), 404
+
+        # If avg_rating is None (no reviews), set to 0
+        if avg_rating is None:
+            avg_rating = 0.0
+
+        # Prepare the response data for each review
+        review_list = []
+        for review in reviews:
+            review_list.append({
+                'ReviewText': review[0],  # ReviewText
+                'Rating': review[1],      # Rating
+                'CreatedDate': review[2].strftime("%Y-%m-%d %H:%M:%S"),  # Format the CreatedDate
+                'FirstName': review[3],   # FirstName
+                'LastName': review[4],    # LastName
+                'ReviewsImageUrl': review[5]  # Review Image URL (can be null)
+            })
+
+        # Respond with the list of reviews, average rating, and total reviews
+        return jsonify({
+            'status': 200,
+            'VR360ID': vr360_id,
+            'Reviews': review_list,
+            'AverageRating': round(float(avg_rating), 2),  # Round to 2 decimal places
+            'TotalReviews': len(review_list)  # Total number of reviews
+        }), 200
 
     except Exception as e:
         print(f"Error retrieving reviews for VR360ID {vr360_id}: {e}")
         return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
     finally:
         if conn:
-            conn.close()
+            conn.close()  # Ensure the connection is closed
 
 # Add route for managing wishlist
 @app.route('/api/wishlist/<int:vr360_id>', methods=['POST'])
@@ -1218,10 +1330,10 @@ def extract(user_id):
 @token_required
 def save_or_update_property(user_id):
     try:
-        # Get JSON data
-        data = request.get_json()
+        # Get form data
+        data = request.form
 
-        # Extract values from JSON
+        # Extract values from the form data
         pname = data.get('PName')
         address = data.get('Address')
         latitude = data.get('Latitude')
@@ -1235,9 +1347,10 @@ def save_or_update_property(user_id):
         property_image = request.files.get('PropertyImageURL')
         visiting_card = request.files.get('VisitingCardURL')
 
-        selfie_data = selfie.read() if selfie else None
-        property_image_data = property_image.read() if property_image else None
-        visiting_card_data = visiting_card.read() if visiting_card else None
+        # Save each file (if provided and valid)
+        selfie_path = save_file(selfie, SELFIE_FOLDER)
+        property_image_path = save_file(property_image, PROPERTY_FOLDER)
+        visiting_card_path = save_file(visiting_card, VISITING_CARD_FOLDER)
 
         # Connect to the database
         connection = get_db_connection()
@@ -1265,7 +1378,7 @@ def save_or_update_property(user_id):
                 WHERE PropertyID = ?
             """
             cursor.execute(update_query, (pname, address, latitude, longitude, designation, company_name, 
-                                          mobile_number, selfie_data, property_image_data, visiting_card_data, 
+                                          mobile_number, selfie_path, property_image_path, visiting_card_path, 
                                           user_id, property_id))
             message = 'Property updated successfully'
         else:
@@ -1277,8 +1390,8 @@ def save_or_update_property(user_id):
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 0, GETDATE(), ?, GETDATE())
             """
             cursor.execute(insert_query, (user_id, pname, address, latitude, longitude, designation, 
-                                          company_name, mobile_number, selfie_data, property_image_data, 
-                                          visiting_card_data, user_id))
+                                          company_name, mobile_number, selfie_path, property_image_path, 
+                                          visiting_card_path, user_id))
             message = 'Property saved successfully'
 
         connection.commit()
