@@ -13,11 +13,9 @@ import pytesseract
 from PIL import Image
 import tempfile
 import cv2
-import uuid
 import numpy as np
-import os
+import uuid
 from werkzeug.utils import secure_filename
-
 
 from flask_cors import CORS 
 
@@ -28,16 +26,19 @@ CORS(app)
 # Secret key for JWT encoding/decoding
 SECRET_KEY = 'your_secret_key'
 
-# Define the upload folder and allowed extensions
+# Your additional code here...
+
+# Define the upload folders and allowed extensions
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))  # Gets the current directory
 UPLOAD_FOLDER = os.path.join(CURRENT_DIR, 'uploads')  # Base upload directory
 SELFIE_FOLDER = os.path.join(UPLOAD_FOLDER, 'users')  # Subfolder for selfies
 PROPERTY_FOLDER = os.path.join(UPLOAD_FOLDER, 'property')  # Subfolder for property images
 VISITING_CARD_FOLDER = os.path.join(UPLOAD_FOLDER, 'visitingcards')  # Subfolder for visiting cards
-REVIEWS_FOLDER = os.path.join(UPLOAD_FOLDER, 'reviews')  # Subfolder for reviews images
+REVIEWS_FOLDER = os.path.join(UPLOAD_FOLDER, 'reviews')  # Subfolder for reviews
+
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 
-# Ensure all folders exist
+# Ensure these folders exist
 os.makedirs(SELFIE_FOLDER, exist_ok=True)
 os.makedirs(PROPERTY_FOLDER, exist_ok=True)
 os.makedirs(VISITING_CARD_FOLDER, exist_ok=True)
@@ -49,7 +50,7 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# Function to save the file if it exists and has an allowed extension
+# Function to save files in the specified folder
 def save_file(file, folder):
     if file and allowed_file(file.filename):
         # Create a secure and unique filename
@@ -59,7 +60,6 @@ def save_file(file, folder):
         return filepath  # Return the path for DB storage
     return None
 
-# Your additional code here...
 
 def token_required(f):
     @wraps(f)
@@ -927,73 +927,11 @@ def search_vr360(user_id):
         if conn:
             conn.close()
 
-import os
-import uuid
-from werkzeug.utils import secure_filename
-from flask import request, jsonify
-
-# Define the folder where uploaded images will be stored
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))  # Gets the current directory
-UPLOAD_FOLDER = os.path.join(CURRENT_DIR, 'uploads', 'reviews')  # Path to 'uploads/reviews' folder
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
-
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
-# Function to check allowed file extensions
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-# Function to generate a unique filename
-def generate_unique_filename(filename):
-    extension = filename.rsplit('.', 1)[1].lower()  # Get the file extension
-    unique_filename = f"{uuid.uuid4()}.{extension}"  # Create unique filename using UUID
-    return unique_filename
-
-import os
-import uuid
-from werkzeug.utils import secure_filename
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-
-# Initialize the Flask application
-app = Flask(__name__)
-CORS(app)
-
-# Secret key for JWT encoding/decoding
-SECRET_KEY = 'your_secret_key'
-
-# Define the upload folders and allowed extensions
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))  # Gets the current directory
-UPLOAD_FOLDER = os.path.join(CURRENT_DIR, 'uploads')  # Base upload directory
-REVIEWS_FOLDER = os.path.join(UPLOAD_FOLDER, 'reviews')  # Subfolder for reviews
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
-
-# Ensure the reviews folder exists
-os.makedirs(REVIEWS_FOLDER, exist_ok=True)
-
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
-# Function to check allowed file extensions
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-# Function to save files in the specified folder
-def save_file(file, folder):
-    if file and allowed_file(file.filename):
-        # Create a secure and unique filename
-        unique_filename = f"{uuid.uuid4().hex}_{secure_filename(file.filename)}"
-        filepath = os.path.join(folder, unique_filename)
-        file.save(filepath)
-        return filepath  # Return the path for DB storage
-    return None
-
 @app.route('/api/vr-review/<int:vr360_id>', methods=['POST'])
 @token_required
 def submit_review_comment(user_id, vr360_id):
     try:
-        # Parse form data and get the image (optional)
-        data = request.form  # Use form to get both file and JSON data
-        image = request.files.get('ReviewImage')  # Get the image file from the request
+        data = request.form  # Use form data to get both the review text and image files
 
         # Ensure required fields are provided
         rating = data.get('Rating')
@@ -1002,13 +940,11 @@ def submit_review_comment(user_id, vr360_id):
         if rating is None or not review_text:
             return jsonify({'status': 400, 'message': 'Rating and ReviewText are required'}), 400
 
-        # Save the review image (if provided and valid)
-        review_image_path = save_file(image, REVIEWS_FOLDER)
+        # Handle file upload for review (if provided)
+        review_image = request.files.get('ReviewImage')
 
-        # Generate a URL for the saved image
-        review_image_url = None
-        if review_image_path:
-            review_image_url = f"{request.host_url}uploads/reviews/{os.path.basename(review_image_path)}"
+        # Save the review image (if provided)
+        review_image_path = save_file(review_image, REVIEWS_FOLDER)
 
         # Establish the database connection
         conn = get_db_connection()
@@ -1032,19 +968,18 @@ def submit_review_comment(user_id, vr360_id):
                 'message': 'User has already submitted an active review for this VR360ID'
             }), 400
 
-        # Insert the new review into the tbDS_RatingsReviews table, including the image URL if provided
+        # Insert the new review into the tbDS_RatingsReviews table
         cursor.execute("""
             INSERT INTO [UnomiruAppDB].[dbo].[tbDS_RatingsReviews] 
-            (VR360ID, UserID, Rating, ReviewText, ReviewsImageUrl, IsActive, IsDeleted, CreatedDate)
+            (VR360ID, UserID, Rating, ReviewText, ReviewImageUrl, IsActive, IsDeleted, CreatedDate)
             VALUES (?, ?, ?, ?, ?, 1, 0, GETDATE())
-        """, (vr360_id, user_id, rating, review_text, review_image_url))
+        """, (vr360_id, user_id, rating, review_text, review_image_path))
 
         conn.commit()
 
         return jsonify({
             'status': 201,
-            'message': f'Review successfully submitted for VR360ID {vr360_id}',
-            'image_url': review_image_url
+            'message': f'Review successfully submitted for VR360ID {vr360_id}'
         }), 201
 
     except Exception as e:
@@ -1054,7 +989,6 @@ def submit_review_comment(user_id, vr360_id):
         if conn:
             conn.close()
 
-           
 @app.route('/api/vr-reviews/<int:vr360_id>', methods=['GET'])
 @token_required  # Assuming you are using the same token-based authentication
 def get_reviews(user_id, vr360_id):
@@ -1403,6 +1337,43 @@ def save_or_update_property(user_id):
         print(f"Error saving or updating property: {e}")
         return jsonify({'status': 500, 'message': 'An error occurred while saving or updating the property'}), 500
 
+# Route to get all properties
+@app.route('/api/properties', methods=['GET'])
+@token_required
+def get_all_properties(user_id):
+    try:
+        connection = get_db_connection()
+        if not connection:
+            return jsonify({'status': 500, 'message': 'Database connection failed'}), 500
+        
+        cursor = connection.cursor()
+        query = "SELECT PropertyID, UserID, PName, Address, Latitude, Longitude, Designation, CompanyName, MobileNumber, CreatedAt FROM [dbo].[tbOPT_Property] WHERE IsDeleted = 0"
+        cursor.execute(query)
+        properties = cursor.fetchall()
+
+        # Convert properties to a list of dictionaries
+        properties_list = []
+        for property in properties:
+            properties_list.append({
+                'PropertyID': property[0],
+                'UserID': property[1],
+                'PName': property[2],
+                'Address': property[3],
+                'Latitude': property[4],
+                'Longitude': property[5],
+                'Designation': property[6],
+                'CompanyName': property[7],
+                'MobileNumber': property[8],
+                'CreatedAt': property[9].isoformat()
+            })
+
+        cursor.close()
+        return jsonify({'status': 200, 'properties': properties_list}), 200
+
+    except Exception as e:
+        print(f"Error retrieving properties: {e}")
+        return jsonify({'status': 500, 'message': 'An error occurred while retrieving properties'}), 500
+
 @app.route('/api/user/properties', methods=['GET'])
 @token_required
 def get_user_properties(user_id):
@@ -1442,44 +1413,6 @@ def get_user_properties(user_id):
         else:
             cursor.close()
             return jsonify({'status': 404, 'message': 'No properties found for this user'}), 404
-
-    except Exception as e:
-        print(f"Error retrieving properties: {e}")
-        return jsonify({'status': 500, 'message': 'An error occurred while retrieving properties'}), 500
-
-
-# Route to get all properties
-@app.route('/api/properties', methods=['GET'])
-@token_required
-def get_all_properties(user_id):
-    try:
-        connection = get_db_connection()
-        if not connection:
-            return jsonify({'status': 500, 'message': 'Database connection failed'}), 500
-        
-        cursor = connection.cursor()
-        query = "SELECT PropertyID, UserID, PName, Address, Latitude, Longitude, Designation, CompanyName, MobileNumber, CreatedAt FROM [dbo].[tbOPT_Property] WHERE IsDeleted = 0"
-        cursor.execute(query)
-        properties = cursor.fetchall()
-
-        # Convert properties to a list of dictionaries
-        properties_list = []
-        for property in properties:
-            properties_list.append({
-                'PropertyID': property[0],
-                'UserID': property[1],
-                'PName': property[2],
-                'Address': property[3],
-                'Latitude': property[4],
-                'Longitude': property[5],
-                'Designation': property[6],
-                'CompanyName': property[7],
-                'MobileNumber': property[8],
-                'CreatedAt': property[9].isoformat()
-            })
-
-        cursor.close()
-        return jsonify({'status': 200, 'properties': properties_list}), 200
 
     except Exception as e:
         print(f"Error retrieving properties: {e}")
@@ -1599,6 +1532,7 @@ def get_property_by_id(user_id, property_id):
     except Exception as e:
         print(f"Error retrieving property: {e}")
         return jsonify({'status': 500, 'message': 'An error occurred while retrieving the property'}), 500
+    
 # Route to submit a review and rating
 @app.route('/api/property/review/<int:property_id>', methods=['POST'])
 @token_required
