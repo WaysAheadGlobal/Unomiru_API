@@ -930,6 +930,7 @@ def search_vr360(user_id):
 @app.route('/api/vr-review/<int:vr360_id>', methods=['POST'])
 @token_required
 def submit_review_comment(user_id, vr360_id):
+    conn = None  # Initialize conn to None
     try:
         data = request.form  # Use form data to get both the review text and image files
 
@@ -971,7 +972,7 @@ def submit_review_comment(user_id, vr360_id):
         # Insert the new review into the tbDS_RatingsReviews table
         cursor.execute("""
             INSERT INTO [UnomiruAppDB].[dbo].[tbDS_RatingsReviews] 
-            (VR360ID, UserID, Rating, ReviewText, ReviewImageUrl, IsActive, IsDeleted, CreatedDate)
+            (VR360ID, UserID, Rating, ReviewText, ReviewsImageUrl, IsActive, IsDeleted, CreatedDate)
             VALUES (?, ?, ?, ?, ?, 1, 0, GETDATE())
         """, (vr360_id, user_id, rating, review_text, review_image_path))
 
@@ -986,9 +987,9 @@ def submit_review_comment(user_id, vr360_id):
         print(f"Error submitting review for VR360ID {vr360_id}: {e}")
         return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
     finally:
+        # Close the connection if it was successfully created
         if conn:
             conn.close()
-
 @app.route('/api/vr-reviews/<int:vr360_id>', methods=['GET'])
 @token_required  # Assuming you are using the same token-based authentication
 def get_reviews(user_id, vr360_id):
