@@ -1266,7 +1266,9 @@ def extract(user_id):
 def save_or_update_property(user_id):
     try:
         # Get form data
-        data = request.form
+        data = request.form if request.form else request.json  # Support both form-data and JSON
+        if not data:
+            return jsonify({'status': 400, 'message': 'No form or JSON data provided'}), 400
 
         # Extract values from the form data
         pname = data.get('PName')
@@ -1277,15 +1279,21 @@ def save_or_update_property(user_id):
         company_name = data.get('CompanyName')
         mobile_number = data.get('MobileNumber')
 
+        # Add debug logs to check if data is being correctly extracted
+        print(f"Extracted data: PName={pname}, Address={address}, Latitude={latitude}, Longitude={longitude}, "
+              f"Designation={designation}, CompanyName={company_name}, MobileNumber={mobile_number}")
+
         # Handle file uploads (images) if sent
         selfie = request.files.get('SelfieWithPropertyURL')
         property_image = request.files.get('PropertyImageURL')
         visiting_card = request.files.get('VisitingCardURL')
 
         # Save each file (if provided and valid)
-        selfie_path = save_file(selfie, SELFIE_FOLDER)
-        property_image_path = save_file(property_image, PROPERTY_FOLDER)
-        visiting_card_path = save_file(visiting_card, VISITING_CARD_FOLDER)
+        selfie_path = save_file(selfie, SELFIE_FOLDER) if selfie else None
+        property_image_path = save_file(property_image, PROPERTY_FOLDER) if property_image else None
+        visiting_card_path = save_file(visiting_card, VISITING_CARD_FOLDER) if visiting_card else None
+
+        print(f"File paths: Selfie={selfie_path}, PropertyImage={property_image_path}, VisitingCard={visiting_card_path}")
 
         # Connect to the database
         connection = get_db_connection()
