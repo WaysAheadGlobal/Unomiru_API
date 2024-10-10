@@ -51,13 +51,31 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # Function to save files in the specified folder
-def save_file(file, folder):
+def save_file(file, folder, folder_type):
+    """Save file to the specified folder and return the URL."""
     if file and allowed_file(file.filename):
-        # Create a secure and unique filename
-        unique_filename = f"{uuid.uuid4().hex}_{secure_filename(file.filename)}"
-        filepath = os.path.join(folder, unique_filename)
-        file.save(filepath)
-        return filepath  # Return the path for DB storage
+        try:
+            # Create a secure and unique filename
+            unique_filename = f"{uuid.uuid4().hex}_{secure_filename(file.filename)}"
+            
+            # Ensure the folder exists
+            if not os.path.exists(folder):
+                os.makedirs(folder)
+            
+            # Save the file to the filesystem
+            filepath = os.path.join(folder, unique_filename)
+            file.save(filepath)
+
+            # Dynamically get the base URL from the request host
+            base_url = request.host_url.rstrip('/')
+
+            # Construct the public file URL using the request's base URL
+            file_url = f"{base_url}/uploads/{folder_type}/{unique_filename}"
+
+            return file_url  # Return the URL to be stored in the DB
+        except Exception as e:
+            print(f"Error saving file: {e}")
+            return None
     return None
 
 
@@ -1266,7 +1284,7 @@ def extract(user_id):
 def save_or_update_property(user_id):
     try:
         # Get form data
-        data = request.form if request.form else request.json  # Support both form-data and JSON
+        data = request.form if request.form else request.json
         if not data:
             return jsonify({'status': 400, 'message': 'No form or JSON data provided'}), 400
 
@@ -1279,7 +1297,7 @@ def save_or_update_property(user_id):
         company_name = data.get('CompanyName')
         mobile_number = data.get('MobileNumber')
 
-        # Add debug logs to check if data is being correctly extracted
+        # Log extracted data for debugging
         print(f"Extracted data: PName={pname}, Address={address}, Latitude={latitude}, Longitude={longitude}, "
               f"Designation={designation}, CompanyName={company_name}, MobileNumber={mobile_number}")
 
@@ -1288,12 +1306,13 @@ def save_or_update_property(user_id):
         property_image = request.files.get('PropertyImageURL')
         visiting_card = request.files.get('VisitingCardURL')
 
-        # Save each file (if provided and valid)
-        selfie_path = save_file(selfie, SELFIE_FOLDER) if selfie else None
-        property_image_path = save_file(property_image, PROPERTY_FOLDER) if property_image else None
-        visiting_card_path = save_file(visiting_card, VISITING_CARD_FOLDER) if visiting_card else None
+        # Save each file and return its URL
+        selfie_url = save_file(selfie, SELFIE_FOLDER, 'users') if selfie else None
+        property_image_url = save_file(property_image, PROPERTY_FOLDER, 'property') if property_image else None
+        visiting_card_url = save_file(visiting_card, VISITING_CARD_FOLDER, 'visitingcards') if visiting_card else None
 
-        print(f"File paths: Selfie={selfie_path}, PropertyImage={property_image_path}, VisitingCard={visiting_card_path}")
+        # Log file URLs for debugging
+        print(f"File URLs: Selfie={selfie_url}, PropertyImage={property_image_url}, VisitingCard={visiting_card_url}")
 
         # Connect to the database
         connection = get_db_connection()
@@ -1321,7 +1340,7 @@ def save_or_update_property(user_id):
                 WHERE PropertyID = ?
             """
             cursor.execute(update_query, (pname, address, latitude, longitude, designation, company_name, 
-                                          mobile_number, selfie_path, property_image_path, visiting_card_path, 
+                                          mobile_number, selfie_url, property_image_url, visiting_card_url, 
                                           user_id, property_id))
             message = 'Property updated successfully'
         else:
@@ -1333,8 +1352,8 @@ def save_or_update_property(user_id):
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 0, GETDATE(), ?, GETDATE())
             """
             cursor.execute(insert_query, (user_id, pname, address, latitude, longitude, designation, 
-                                          company_name, mobile_number, selfie_path, property_image_path, 
-                                          visiting_card_path, user_id))
+                                          company_name, mobile_number, selfie_url, property_image_url, 
+                                          visiting_card_url, user_id))
             message = 'Property saved successfully'
 
         connection.commit()
