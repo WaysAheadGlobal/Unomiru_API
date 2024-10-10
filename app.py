@@ -1343,61 +1343,82 @@ def save_or_update_property(user_id):
 @token_required
 def get_all_properties(user_id):
     try:
+        # Connect to the database
         connection = get_db_connection()
         if not connection:
             return jsonify({'status': 500, 'message': 'Database connection failed'}), 500
-        
+
         cursor = connection.cursor()
-        query = "SELECT PropertyID, UserID, PName, Address, Latitude, Longitude, Designation, CompanyName, MobileNumber, CreatedAt FROM [dbo].[tbOPT_Property] WHERE IsDeleted = 0"
+
+        # Query to get all properties
+        query = """
+            SELECT PropertyID, PName, Address, Latitude, Longitude, Designation, CompanyName, 
+                   MobileNumber, SelfieWithPropertyURL, PropertyImageURL, VisitingCardURL, 
+                   CreatedAt, ModifiedAt, UserID 
+            FROM [dbo].[tbOPT_Property]
+            WHERE IsActive = 1 AND IsDeleted = 0
+        """
         cursor.execute(query)
         properties = cursor.fetchall()
 
-        # Convert properties to a list of dictionaries
-        properties_list = []
+        if not properties:
+            return jsonify({'status': 404, 'message': 'No properties found'}), 404
+
+        # Prepare response
+        property_list = []
         for property in properties:
-            properties_list.append({
+            property_details = {
                 'PropertyID': property[0],
-                'UserID': property[1],
-                'PName': property[2],
-                'Address': property[3],
-                'Latitude': property[4],
-                'Longitude': property[5],
-                'Designation': property[6],
-                'CompanyName': property[7],
-                'MobileNumber': property[8],
-                'CreatedAt': property[9].isoformat()
-            })
+                'PName': property[1],
+                'Address': property[2],
+                'Latitude': property[3],
+                'Longitude': property[4],
+                'Designation': property[5],
+                'CompanyName': property[6],
+                'MobileNumber': property[7],
+                'SelfieWithPropertyURL': property[8],
+                'PropertyImageURL': property[9],
+                'VisitingCardURL': property[10],
+                'CreatedAt': property[11],
+                'ModifiedAt': property[12],
+                'UserID': property[13]  # Adding the UserID field to track property owners
+            }
+            property_list.append(property_details)
 
         cursor.close()
-        return jsonify({'status': 200, 'properties': properties_list}), 200
+
+        return jsonify({'status': 200, 'properties': property_list}), 200
 
     except Exception as e:
-        print(f"Error retrieving properties: {e}")
-        return jsonify({'status': 500, 'message': 'An error occurred while retrieving properties'}), 500
+        print(f"Error retrieving all properties: {e}")
+        return jsonify({'status': 500, 'message': 'An error occurred while retrieving the properties'}), 500
 
 @app.route('/api/user/properties', methods=['GET'])
 @token_required
 def get_user_properties(user_id):
     try:
+        # Connect to the database
         connection = get_db_connection()
         if not connection:
             return jsonify({'status': 500, 'message': 'Database connection failed'}), 500
         
         cursor = connection.cursor()
 
-        # Query to get all properties for the authenticated user
+        # Query to get all properties for the authenticated user, including all fields
         query = """
             SELECT PropertyID, PName, Address, Latitude, Longitude, Designation, 
-                   CompanyName, MobileNumber, CreatedAt 
+                   CompanyName, MobileNumber, SelfieWithPropertyURL, PropertyImageURL, 
+                   VisitingCardURL, CreatedAt, ModifiedAt
             FROM [dbo].[tbOPT_Property] 
             WHERE UserID = ? AND IsDeleted = 0
         """
-        cursor.execute(query, (user_id,))  # Use user_id from the token to get only this user's properties
+        cursor.execute(query, (user_id,))  # Use user_id from the token to get this user's properties
         properties = cursor.fetchall()
 
         if properties:
             property_list = []
             for property in properties:
+                # Add all the fields to the property list
                 property_list.append({
                     'PropertyID': property[0],
                     'PName': property[1],
@@ -1407,9 +1428,15 @@ def get_user_properties(user_id):
                     'Designation': property[5],
                     'CompanyName': property[6],
                     'MobileNumber': property[7],
-                    'CreatedAt': property[8].isoformat()
+                    'SelfieWithPropertyURL': property[8],
+                    'PropertyImageURL': property[9],
+                    'VisitingCardURL': property[10],
+                    'CreatedAt': property[11].isoformat(),
+                    'ModifiedAt': property[12].isoformat() if property[12] else None  # Handle potential NULL value
                 })
             cursor.close()
+
+            # Return the list of properties
             return jsonify({'status': 200, 'properties': property_list}), 200
         else:
             cursor.close()
@@ -1502,16 +1529,26 @@ def search_property(user_id):
 @token_required
 def get_property_by_id(user_id, property_id):
     try:
+        # Connect to the database
         connection = get_db_connection()
         if not connection:
             return jsonify({'status': 500, 'message': 'Database connection failed'}), 500
         
         cursor = connection.cursor()
-        query = "SELECT PropertyID, UserID, PName, Address, Latitude, Longitude, Designation, CompanyName, MobileNumber, CreatedAt FROM [dbo].[tbOPT_Property] WHERE PropertyID = ? AND IsDeleted = 0"
+
+        # Query to fetch all fields from the property table, including image URLs and timestamps
+        query = """
+            SELECT PropertyID, UserID, PName, Address, Latitude, Longitude, Designation, 
+                   CompanyName, MobileNumber, SelfieWithPropertyURL, PropertyImageURL, 
+                   VisitingCardURL, CreatedAt, ModifiedAt
+            FROM [dbo].[tbOPT_Property]
+            WHERE PropertyID = ? AND IsDeleted = 0
+        """
         cursor.execute(query, (property_id,))
         property = cursor.fetchone()
 
         if property:
+            # Create a dictionary to hold property data
             property_data = {
                 'PropertyID': property[0],
                 'UserID': property[1],
@@ -1522,7 +1559,11 @@ def get_property_by_id(user_id, property_id):
                 'Designation': property[6],
                 'CompanyName': property[7],
                 'MobileNumber': property[8],
-                'CreatedAt': property[9].isoformat()
+                'SelfieWithPropertyURL': property[9],
+                'PropertyImageURL': property[10],
+                'VisitingCardURL': property[11],
+                'CreatedAt': property[12].isoformat(),  # Convert to ISO format for consistency
+                'ModifiedAt': property[13].isoformat() if property[13] else None  # Handle potential NULL for ModifiedAt
             }
             cursor.close()
             return jsonify({'status': 200, 'property': property_data}), 200
@@ -1533,7 +1574,7 @@ def get_property_by_id(user_id, property_id):
     except Exception as e:
         print(f"Error retrieving property: {e}")
         return jsonify({'status': 500, 'message': 'An error occurred while retrieving the property'}), 500
-    
+ 
 # Route to submit a review and rating
 @app.route('/api/property/review/<int:property_id>', methods=['POST'])
 @token_required
