@@ -1283,6 +1283,10 @@ def extract(user_id):
 @token_required
 def save_or_update_property(user_id):
     try:
+        # Log incoming request for debugging
+        print(f"Request form data: {request.form}")
+        print(f"Request JSON data: {request.json}")
+
         # Get form data
         data = request.form if request.form else request.json
         if not data:
@@ -1310,10 +1314,14 @@ def save_or_update_property(user_id):
         property_image = request.files.get('PropertyImageURL')
         visiting_card = request.files.get('VisitingCardURL')
 
-        # Save each file and return its URL
-        selfie_url = save_file(selfie, SELFIE_FOLDER, 'users') if selfie else None
-        property_image_url = save_file(property_image, PROPERTY_FOLDER, 'property') if property_image else None
-        visiting_card_url = save_file(visiting_card, VISITING_CARD_FOLDER, 'visitingcards') if visiting_card else None
+        # Save each file and return its URL, with exception handling for file errors
+        try:
+            selfie_url = save_file(selfie, SELFIE_FOLDER, 'users') if selfie else None
+            property_image_url = save_file(property_image, PROPERTY_FOLDER, 'property') if property_image else None
+            visiting_card_url = save_file(visiting_card, VISITING_CARD_FOLDER, 'visitingcards') if visiting_card else None
+        except Exception as file_error:
+            print(f"Error saving file: {file_error}")
+            return jsonify({'status': 500, 'message': 'File upload failed due to permission issues'}), 500
 
         # Log file URLs for debugging
         print(f"File URLs: Selfie={selfie_url}, PropertyImage={property_image_url}, VisitingCard={visiting_card_url}")
@@ -1370,7 +1378,6 @@ def save_or_update_property(user_id):
     except Exception as e:
         print(f"Error saving or updating property: {e}")
         return jsonify({'status': 500, 'message': 'An error occurred while saving or updating the property'}), 500
-
 
 # Route to get all properties
 @app.route('/api/properties', methods=['GET'])
