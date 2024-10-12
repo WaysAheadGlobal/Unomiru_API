@@ -1287,41 +1287,43 @@ def save_or_update_property(user_id):
         print(f"Request form data: {request.form}")
         print(f"Request JSON data: {request.json}")
 
-        # Get form data
-        data = request.form if request.form else request.json
-        if not data:
+        # Get form data, check if it's in form or JSON format
+        if request.form:
+            print("Data received via form")
+            data = request.form
+        elif request.json:
+            print("Data received via JSON")
+            data = request.json
+        else:
+            print("No form or JSON data found")
             return jsonify({'status': 400, 'message': 'No form or JSON data provided'}), 400
 
-        # Extract values from the form data
-        pname = data.get('PName')
-        address = data.get('Address')
-        latitude = data.get('Latitude')
-        longitude = data.get('Longitude')
-        designation = data.get('Designation')
-        company_name = data.get('CompanyName')
-        mobile_number = data.get('MobileNumber')
+        # Extract values from the form or JSON data
+        pname = data.get('PName', None)
+        address = data.get('Address', None)
+        latitude = data.get('Latitude', None)
+        longitude = data.get('Longitude', None)
+        designation = data.get('Designation', None)
+        company_name = data.get('CompanyName', None)
+        mobile_number = data.get('MobileNumber', None)
 
         # Log extracted data for debugging
         print(f"Extracted data: PName={pname}, Address={address}, Latitude={latitude}, Longitude={longitude}, "
               f"Designation={designation}, CompanyName={company_name}, MobileNumber={mobile_number}")
 
-        # Check if any of the extracted data is None
-        if not pname or not address or not mobile_number:
-            return jsonify({'status': 400, 'message': 'Required fields are missing'}), 400
+        # Check for required fields (you can add more as needed)
+        if not pname:
+            return jsonify({'status': 400, 'message': 'Property Name is required'}), 400
 
         # Handle file uploads (images) if sent
         selfie = request.files.get('SelfieWithPropertyURL')
         property_image = request.files.get('PropertyImageURL')
         visiting_card = request.files.get('VisitingCardURL')
 
-        # Save each file and return its URL, with exception handling for file errors
-        try:
-            selfie_url = save_file(selfie, SELFIE_FOLDER, 'users') if selfie else None
-            property_image_url = save_file(property_image, PROPERTY_FOLDER, 'property') if property_image else None
-            visiting_card_url = save_file(visiting_card, VISITING_CARD_FOLDER, 'visitingcards') if visiting_card else None
-        except Exception as file_error:
-            print(f"Error saving file: {file_error}")
-            return jsonify({'status': 500, 'message': 'File upload failed due to permission issues'}), 500
+        # Save each file and return its URL
+        selfie_url = save_file(selfie, SELFIE_FOLDER, 'users') if selfie else None
+        property_image_url = save_file(property_image, PROPERTY_FOLDER, 'property') if property_image else None
+        visiting_card_url = save_file(visiting_card, VISITING_CARD_FOLDER, 'visitingcards') if visiting_card else None
 
         # Log file URLs for debugging
         print(f"File URLs: Selfie={selfie_url}, PropertyImage={property_image_url}, VisitingCard={visiting_card_url}")
@@ -1333,7 +1335,7 @@ def save_or_update_property(user_id):
 
         cursor = connection.cursor()
 
-        # Check if the property already exists (e.g., by PName and UserID or Address)
+        # Check if the property already exists (by PName and UserID or Address)
         check_query = """
             SELECT PropertyID FROM [dbo].[tbOPT_Property] 
             WHERE UserID = ? AND (PName = ? OR Address = ?)
@@ -1351,7 +1353,6 @@ def save_or_update_property(user_id):
                     PropertyImageURL = ?, VisitingCardURL = ?, ModifiedBy = ?, ModifiedAt = GETDATE()
                 WHERE PropertyID = ?
             """
-            print(f"Executing query: {update_query} with data {pname, address, latitude, longitude, designation, company_name, mobile_number, selfie_url, property_image_url, visiting_card_url, user_id, property_id}")
             cursor.execute(update_query, (pname, address, latitude, longitude, designation, company_name, 
                                           mobile_number, selfie_url, property_image_url, visiting_card_url, 
                                           user_id, property_id))
@@ -1364,7 +1365,6 @@ def save_or_update_property(user_id):
                  SelfieWithPropertyURL, PropertyImageURL, VisitingCardURL, IsActive, IsDeleted, IsPermission, CreatedAt, ModifiedBy, ModifiedAt)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 0, GETDATE(), ?, GETDATE())
             """
-            print(f"Executing query: {insert_query} with data {user_id, pname, address, latitude, longitude, designation, company_name, mobile_number, selfie_url, property_image_url, visiting_card_url, user_id}")
             cursor.execute(insert_query, (user_id, pname, address, latitude, longitude, designation, 
                                           company_name, mobile_number, selfie_url, property_image_url, 
                                           visiting_card_url, user_id))
