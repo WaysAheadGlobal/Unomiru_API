@@ -1283,39 +1283,28 @@ def extract(user_id):
 @token_required
 def save_or_update_property(user_id):
     try:
-        # Log incoming request for debugging
+        # Log incoming request data for debugging
         print(f"Request form data: {request.form}")
-        print(f"Request JSON data: {request.json}")
+        print(f"Request files: {request.files}")
 
-        # Get form data, check if it's in form or JSON format
-        if request.form:
-            print("Data received via form")
-            data = request.form
-        elif request.json:
-            print("Data received via JSON")
-            data = request.json
-        else:
-            print("No form or JSON data found")
-            return jsonify({'status': 400, 'message': 'No form or JSON data provided'}), 400
+        # Get form data, ensure it's coming as form data (since files are involved)
+        if not request.form:
+            return jsonify({'status': 400, 'message': 'Form data is required'}), 400
 
-        # Extract values from the form or JSON data
-        pname = data.get('PName', None)
-        address = data.get('Address', None)
-        latitude = data.get('Latitude', None)
-        longitude = data.get('Longitude', None)
-        designation = data.get('Designation', None)
-        company_name = data.get('CompanyName', None)
-        mobile_number = data.get('MobileNumber', None)
+        # Extract values from form data, removing extra spaces from field names
+        pname = request.form.get('PName')
+        address = request.form.get('Address')
+        latitude = request.form.get('Latitude')
+        longitude = request.form.get('Longitude')
+        designation = request.form.get('Designation')
+        company_name = request.form.get('CompanyName')
+        mobile_number = request.form.get('MobileNumber')
 
         # Log extracted data for debugging
         print(f"Extracted data: PName={pname}, Address={address}, Latitude={latitude}, Longitude={longitude}, "
               f"Designation={designation}, CompanyName={company_name}, MobileNumber={mobile_number}")
 
-        # Check for required fields (you can add more as needed)
-        if not pname:
-            return jsonify({'status': 400, 'message': 'Property Name is required'}), 400
-
-        # Handle file uploads (images) if sent
+        # Handle file uploads (images) if they are sent
         selfie = request.files.get('SelfieWithPropertyURL')
         property_image = request.files.get('PropertyImageURL')
         visiting_card = request.files.get('VisitingCardURL')
@@ -1335,7 +1324,7 @@ def save_or_update_property(user_id):
 
         cursor = connection.cursor()
 
-        # Check if the property already exists (by PName and UserID or Address)
+        # Check if the property already exists (e.g., by PName and UserID or Address)
         check_query = """
             SELECT PropertyID FROM [dbo].[tbOPT_Property] 
             WHERE UserID = ? AND (PName = ? OR Address = ?)
