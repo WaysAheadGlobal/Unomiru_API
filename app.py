@@ -1283,7 +1283,18 @@ def extract(user_id):
 
 @app.route('/api/property', methods=['POST'])
 @token_required
-def save_or_update_property(user_id):
+def save_property(user_id):
+    """Endpoint to save a new property."""
+    return save_or_update_property(user_id, is_update=False)
+
+@app.route('/api/property/<int:property_id>', methods=['PUT'])
+@token_required
+def update_property(user_id, property_id):
+    """Endpoint to update an existing property."""
+    return save_or_update_property(user_id, is_update=True, property_id=property_id)
+
+def save_or_update_property(user_id, is_update, property_id=None):
+    """Function to save or update property based on is_update flag."""
     try:
         # Get form data
         data = request.form if request.form else request.json
@@ -1292,25 +1303,21 @@ def save_or_update_property(user_id):
 
         # Extract values from the form data, stripping spaces
         pname = data.get('PName', '').strip()
-        address = data.get('Address', '').strip()
-        latitude = data.get('Latitude', '').strip()
-        longitude = data.get('Longitude', '').strip()
-        designation = data.get('Designation', '').strip()
-        company_name = data.get('CompanyName', '').strip()
-        mobile_number = data.get('MobileNumber', '').strip()
+        address = data.get('Address', '').strip() or None  # Optional
+        latitude = data.get('Latitude', '').strip() or None  # Optional
+        longitude = data.get('Longitude', '').strip() or None  # Optional
+        designation = data.get('Designation', '').strip() or None  # Optional
+        company_name = data.get('CompanyName', '').strip() or None  # Optional
+        mobile_number = data.get('MobileNumber', '').strip() or None  # Optional
 
         # Check if required fields are present
         if not pname:
             return jsonify({'status': 400, 'message': 'Property name is required'}), 400
-        if not latitude:
-            return jsonify({'status': 400, 'message': 'Latitude is required'}), 400
-        if not longitude:
-            return jsonify({'status': 400, 'message': 'Longitude is required'}), 400
 
-        # Validate latitude and longitude
-        if not is_valid_numeric(latitude):
+        # Validate latitude and longitude if provided
+        if latitude and not is_valid_numeric(latitude):
             return jsonify({'status': 400, 'message': 'Invalid Latitude value'}), 400
-        if not is_valid_numeric(longitude):
+        if longitude and not is_valid_numeric(longitude):
             return jsonify({'status': 400, 'message': 'Invalid Longitude value'}), 400
 
         # Log extracted data for debugging
@@ -1337,17 +1344,8 @@ def save_or_update_property(user_id):
 
         cursor = connection.cursor()
 
-        # Check if the property already exists (e.g., by PName and UserID or Address)
-        check_query = """
-            SELECT PropertyID FROM [dbo].[tbOPT_Property] 
-            WHERE UserID = ? AND (PName = ? OR Address = ?)
-        """
-        cursor.execute(check_query, (user_id, pname, address))
-        result = cursor.fetchone()
-
-        if result:
-            # Property exists, so update it
-            property_id = result[0]
+        if is_update:
+            # Update the existing property
             update_query = """
                 UPDATE [dbo].[tbOPT_Property]
                 SET PName = ?, Address = ?, Latitude = ?, Longitude = ?, Designation = ?, 
@@ -1360,7 +1358,7 @@ def save_or_update_property(user_id):
                                           user_id, property_id))
             message = 'Property updated successfully'
         else:
-            # Property does not exist, so insert a new one
+            # Insert a new property
             insert_query = """
                 INSERT INTO [dbo].[tbOPT_Property] 
                 (UserID, PName, Address, Latitude, Longitude, Designation, CompanyName, MobileNumber, 
