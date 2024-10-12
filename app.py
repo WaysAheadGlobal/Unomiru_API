@@ -1284,25 +1284,35 @@ def extract(user_id):
 def save_or_update_property(user_id):
     try:
         # Log incoming request data for debugging
+        print(f"Content-Type: {request.headers.get('Content-Type')}")
         print(f"Request form data: {request.form}")
         print(f"Request files: {request.files}")
 
-        # Get form data, ensure it's coming as form data (since files are involved)
-        if not request.form:
-            return jsonify({'status': 400, 'message': 'Form data is required'}), 400
+        # Ensure the request is multipart/form-data for file uploads
+        if not request.content_type.startswith('multipart/form-data'):
+            return jsonify({'status': 415, 'message': 'Unsupported Media Type. Use multipart/form-data.'}), 415
 
-        # Extract values from form data, removing extra spaces from field names
-        pname = request.form.get('PName')
-        address = request.form.get('Address')
-        latitude = request.form.get('Latitude')
-        longitude = request.form.get('Longitude')
-        designation = request.form.get('Designation')
-        company_name = request.form.get('CompanyName')
-        mobile_number = request.form.get('MobileNumber')
+        # Clean the form data keys by stripping any leading/trailing whitespace
+        data = {key.strip(): value for key, value in request.form.items()}
+
+        # Extract values from form data
+        pname = data.get('PName')
+        address = data.get('Address')
+        latitude = data.get('Latitude')
+        longitude = data.get('Longitude')
+        designation = data.get('Designation')
+        company_name = data.get('CompanyName')
+        mobile_number = data.get('MobileNumber')
 
         # Log extracted data for debugging
         print(f"Extracted data: PName={pname}, Address={address}, Latitude={latitude}, Longitude={longitude}, "
               f"Designation={designation}, CompanyName={company_name}, MobileNumber={mobile_number}")
+
+        # Check for required fields
+        required_fields = ['PName', 'Address', 'MobileNumber']
+        missing_fields = [field for field in required_fields if not data.get(field)]
+        if missing_fields:
+            return jsonify({'status': 400, 'message': f"Missing required fields: {', '.join(missing_fields)}"}), 400
 
         # Handle file uploads (images) if they are sent
         selfie = request.files.get('SelfieWithPropertyURL')
@@ -1324,7 +1334,7 @@ def save_or_update_property(user_id):
 
         cursor = connection.cursor()
 
-        # Check if the property already exists (e.g., by PName and UserID or Address)
+        # Check if the property already exists (by PName and UserID or Address)
         check_query = """
             SELECT PropertyID FROM [dbo].[tbOPT_Property] 
             WHERE UserID = ? AND (PName = ? OR Address = ?)
@@ -1342,6 +1352,10 @@ def save_or_update_property(user_id):
                     PropertyImageURL = ?, VisitingCardURL = ?, ModifiedBy = ?, ModifiedAt = GETDATE()
                 WHERE PropertyID = ?
             """
+            print(f"Executing update query with data: PName={pname}, Address={address}, Latitude={latitude}, Longitude={longitude}, "
+                  f"Designation={designation}, CompanyName={company_name}, MobileNumber={mobile_number}, "
+                  f"SelfieWithPropertyURL={selfie_url}, PropertyImageURL={property_image_url}, "
+                  f"VisitingCardURL={visiting_card_url}, ModifiedBy={user_id}, PropertyID={property_id}")
             cursor.execute(update_query, (pname, address, latitude, longitude, designation, company_name, 
                                           mobile_number, selfie_url, property_image_url, visiting_card_url, 
                                           user_id, property_id))
@@ -1354,6 +1368,10 @@ def save_or_update_property(user_id):
                  SelfieWithPropertyURL, PropertyImageURL, VisitingCardURL, IsActive, IsDeleted, IsPermission, CreatedAt, ModifiedBy, ModifiedAt)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 0, GETDATE(), ?, GETDATE())
             """
+            print(f"Executing insert query with data: UserID={user_id}, PName={pname}, Address={address}, Latitude={latitude}, Longitude={longitude}, "
+                  f"Designation={designation}, CompanyName={company_name}, MobileNumber={mobile_number}, "
+                  f"SelfieWithPropertyURL={selfie_url}, PropertyImageURL={property_image_url}, "
+                  f"VisitingCardURL={visiting_card_url}, ModifiedBy={user_id}")
             cursor.execute(insert_query, (user_id, pname, address, latitude, longitude, designation, 
                                           company_name, mobile_number, selfie_url, property_image_url, 
                                           visiting_card_url, user_id))
@@ -1366,6 +1384,9 @@ def save_or_update_property(user_id):
 
     except Exception as e:
         print(f"Error saving or updating property: {e}")
+        # Check if the error is related to unsupported media type
+        if 'Unsupported Media Type' in str(e):
+            return jsonify({'status': 415, 'message': 'Unsupported Media Type'}), 415
         return jsonify({'status': 500, 'message': 'An error occurred while saving or updating the property'}), 500
 
 # Route to get all properties
