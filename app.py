@@ -55,8 +55,10 @@ def save_file(file, folder, folder_type):
     """Save file to the specified folder and return the URL."""
     if file and allowed_file(file.filename):
         try:
-            # Create a secure and unique filename
-            unique_filename = f"{uuid.uuid4().hex}_{secure_filename(file.filename)}"
+            # Create a unique UUID and hash it
+            unique_uuid = uuid.uuid4()
+            hashed_uuid = hashlib.sha256(unique_uuid.bytes).hexdigest()  # Get a SHA-256 hash
+            unique_filename = f"{hashed_uuid[:16]}_{secure_filename(file.filename)}"  # Take the first 16 characters of the hash
             
             # Ensure the folder exists
             if not os.path.exists(folder):
@@ -1283,29 +1285,44 @@ def extract(user_id):
 @token_required
 def save_or_update_property(user_id):
     try:
-        # Log incoming request data for debugging
-        print(f"Request form data: {request.form}")
-        print(f"Request files: {request.files}")
+        # Get form data
+        data = request.form if request.form else request.json
+        if not data:
+            return jsonify({'status': 400, 'message': 'No form or JSON data provided'}), 400
 
-        # Get form data, ensuring extra spaces in field names are removed
-        pname = request.form.get('PName')
-        address = request.form.get('Address')  # Removed extra space in field name
-        latitude = request.form.get('Latitude')  # Removed extra space in field name
-        longitude = request.form.get('Longitude')  # Removed extra space in field name
-        designation = request.form.get('Designation')
-        company_name = request.form.get('CompanyName')
-        mobile_number = request.form.get('MobileNumber')
+        # Extract values from the form data, stripping spaces
+        pname = data.get('PName', '').strip()
+        address = data.get('Address', '').strip()
+        latitude = data.get('Latitude', '').strip()
+        longitude = data.get('Longitude', '').strip()
+        designation = data.get('Designation', '').strip()
+        company_name = data.get('CompanyName', '').strip()
+        mobile_number = data.get('MobileNumber', '').strip()
+
+        # Check if required fields are present
+        if not pname:
+            return jsonify({'status': 400, 'message': 'Property name is required'}), 400
+        if not latitude:
+            return jsonify({'status': 400, 'message': 'Latitude is required'}), 400
+        if not longitude:
+            return jsonify({'status': 400, 'message': 'Longitude is required'}), 400
+
+        # Validate latitude and longitude
+        if not is_valid_numeric(latitude):
+            return jsonify({'status': 400, 'message': 'Invalid Latitude value'}), 400
+        if not is_valid_numeric(longitude):
+            return jsonify({'status': 400, 'message': 'Invalid Longitude value'}), 400
 
         # Log extracted data for debugging
         print(f"Extracted data: PName={pname}, Address={address}, Latitude={latitude}, Longitude={longitude}, "
               f"Designation={designation}, CompanyName={company_name}, MobileNumber={mobile_number}")
 
-        # Handle file uploads (images) if they are sent
+        # Handle file uploads (images) if sent
         selfie = request.files.get('SelfieWithPropertyURL')
         property_image = request.files.get('PropertyImageURL')
         visiting_card = request.files.get('VisitingCardURL')
 
-        # Save each file and return its URL (assuming you have a save_file method)
+        # Save each file and return its URL
         selfie_url = save_file(selfie, SELFIE_FOLDER, 'users') if selfie else None
         property_image_url = save_file(property_image, PROPERTY_FOLDER, 'property') if property_image else None
         visiting_card_url = save_file(visiting_card, VISITING_CARD_FOLDER, 'visitingcards') if visiting_card else None
@@ -1320,7 +1337,7 @@ def save_or_update_property(user_id):
 
         cursor = connection.cursor()
 
-        # Check if the property already exists (by UserID and PName or Address)
+        # Check if the property already exists (e.g., by PName and UserID or Address)
         check_query = """
             SELECT PropertyID FROM [dbo].[tbOPT_Property] 
             WHERE UserID = ? AND (PName = ? OR Address = ?)
@@ -1363,6 +1380,15 @@ def save_or_update_property(user_id):
     except Exception as e:
         print(f"Error saving or updating property: {e}")
         return jsonify({'status': 500, 'message': 'An error occurred while saving or updating the property'}), 500
+
+def is_valid_numeric(value):
+    """ Check if the value can be converted to a float. """
+    try:
+        float(value)
+        return True
+    except ValueError:
+        return False
+
 
 # Route to get all properties
 @app.route('/api/properties', methods=['GET'])
