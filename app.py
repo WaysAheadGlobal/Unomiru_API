@@ -1389,6 +1389,7 @@ def is_valid_numeric(value):
 
 
 # Route to get all properties
+# Route to get all properties
 @app.route('/api/properties', methods=['GET'])
 @token_required
 def get_all_properties(user_id):
@@ -1400,13 +1401,14 @@ def get_all_properties(user_id):
 
         cursor = connection.cursor()
 
-        # Query to get all properties
+        # Query to get all properties, ordered by PropertyID in descending order
         query = """
             SELECT PropertyID, PName, Address, Latitude, Longitude, Designation, CompanyName, 
                    MobileNumber, SelfieWithPropertyURL, PropertyImageURL, VisitingCardURL, 
                    CreatedAt, ModifiedAt, UserID 
             FROM [dbo].[tbOPT_Property]
             WHERE IsActive = 1 AND IsDeleted = 0
+            ORDER BY PropertyID DESC
         """
         cursor.execute(query)
         properties = cursor.fetchall()
