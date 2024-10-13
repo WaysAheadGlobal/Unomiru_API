@@ -1388,7 +1388,7 @@ def is_valid_numeric(value):
         return False
 
 
-# Route to get all properties
+
 # Route to get all properties
 @app.route('/api/properties', methods=['GET'])
 @token_required
