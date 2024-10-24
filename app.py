@@ -1303,6 +1303,7 @@ def save_or_update_property(user_id, is_update, property_id=None):
 
         # Extract values from the form data, stripping spaces
         pname = data.get('PName', '').strip()
+        pemail = data.get('PEmail', '').strip()  # Extract PEmail
         address = data.get('Address', '').strip() or None  # Optional
         latitude = data.get('Latitude', '').strip() or None  # Optional
         longitude = data.get('Longitude', '').strip() or None  # Optional
@@ -1321,7 +1322,7 @@ def save_or_update_property(user_id, is_update, property_id=None):
             return jsonify({'status': 400, 'message': 'Invalid Longitude value'}), 400
 
         # Log extracted data for debugging
-        print(f"Extracted data: PName={pname}, Address={address}, Latitude={latitude}, Longitude={longitude}, "
+        print(f"Extracted data: PName={pname}, PEmail={pemail}, Address={address}, Latitude={latitude}, Longitude={longitude}, "
               f"Designation={designation}, CompanyName={company_name}, MobileNumber={mobile_number}")
 
         # Handle file uploads (images) if sent
@@ -1345,29 +1346,31 @@ def save_or_update_property(user_id, is_update, property_id=None):
         cursor = connection.cursor()
 
         if is_update:
-            # Update the existing property
+           # Update the existing property
             update_query = """
                 UPDATE [dbo].[tbOPT_Property]
-                SET PName = ?, Address = ?, Latitude = ?, Longitude = ?, Designation = ?, 
+                SET PName = ?, PEmail = ?, Address = ?, Latitude = ?, Longitude = ?, Designation = ?, 
                     CompanyName = ?, MobileNumber = ?, SelfieWithPropertyURL = ?, 
                     PropertyImageURL = ?, VisitingCardURL = ?, ModifiedBy = ?, ModifiedAt = GETDATE()
                 WHERE PropertyID = ?
             """
-            cursor.execute(update_query, (pname, address, latitude, longitude, designation, company_name, 
-                                          mobile_number, selfie_url, property_image_url, visiting_card_url, 
-                                          user_id, property_id))
+            cursor.execute(update_query, (pname, pemail, address, latitude, longitude, designation, company_name, 
+                                        mobile_number, selfie_url, property_image_url, visiting_card_url, 
+                                        user_id, property_id))
+
             message = 'Property updated successfully'
         else:
             # Insert a new property
             insert_query = """
                 INSERT INTO [dbo].[tbOPT_Property] 
-                (UserID, PName, Address, Latitude, Longitude, Designation, CompanyName, MobileNumber, 
-                 SelfieWithPropertyURL, PropertyImageURL, VisitingCardURL, IsActive, IsDeleted, IsPermission, CreatedAt, ModifiedBy, ModifiedAt)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 0, GETDATE(), ?, GETDATE())
+                (UserID, PName, PEmail, Address, Latitude, Longitude, Designation, CompanyName, MobileNumber, 
+                SelfieWithPropertyURL, PropertyImageURL, VisitingCardURL, IsActive, IsDeleted, IsPermission, CreatedAt, ModifiedBy, ModifiedAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 0, GETDATE(), ?, GETDATE())
             """
-            cursor.execute(insert_query, (user_id, pname, address, latitude, longitude, designation, 
-                                          company_name, mobile_number, selfie_url, property_image_url, 
-                                          visiting_card_url, user_id))
+            cursor.execute(insert_query, (user_id, pname, pemail, address, latitude, longitude, designation, 
+                                        company_name, mobile_number, selfie_url, property_image_url, 
+                                        visiting_card_url, user_id))
+
             message = 'Property saved successfully'
 
         connection.commit()
@@ -1389,7 +1392,7 @@ def is_valid_numeric(value):
 
 
 
-# Route to get all properties
+# Route to get all properties except those of the logged-in user
 @app.route('/api/properties', methods=['GET'])
 @token_required
 def get_all_properties(user_id):
@@ -1401,16 +1404,20 @@ def get_all_properties(user_id):
 
         cursor = connection.cursor()
 
-        # Query to get all properties, ordered by PropertyID in descending order
+        # Query to get all properties excluding those of the logged-in user, with wishlist status and PEmail
         query = """
-            SELECT PropertyID, PName, Address, Latitude, Longitude, Designation, CompanyName, 
-                   MobileNumber, SelfieWithPropertyURL, PropertyImageURL, VisitingCardURL, 
-                   CreatedAt, ModifiedAt, UserID 
-            FROM [dbo].[tbOPT_Property]
-            WHERE IsActive = 1 AND IsDeleted = 0
-            ORDER BY PropertyID DESC
+            SELECT p.PropertyID, p.PName, p.Address, p.Latitude, p.Longitude, p.Designation, 
+                   p.CompanyName, p.MobileNumber, p.PEmail,  -- Include PEmail
+                   p.SelfieWithPropertyURL, p.PropertyImageURL, p.VisitingCardURL, 
+                   p.CreatedAt, p.ModifiedAt, p.UserID,
+                   w.IsDeleted AS WishlistStatus  -- Fetch IsDeleted from Wishlist
+            FROM [dbo].[tbOPT_Property] p
+            LEFT JOIN [dbo].[tbOPT_Wishlist] w ON p.PropertyID = w.PropertyID AND w.UserID = ?  -- Join with Wishlist to check wishlist status for the logged-in user
+            WHERE p.IsActive = 1 AND p.IsDeleted = 0 AND p.UserID != ?  -- Exclude properties of the logged-in user
+            ORDER BY p.PropertyID DESC
         """
-        cursor.execute(query)
+        cursor.execute(query, (user_id, user_id))  # Pass user_id twice for both wishlist and excluding user properties
+
         properties = cursor.fetchall()
 
         if not properties:
@@ -1428,12 +1435,14 @@ def get_all_properties(user_id):
                 'Designation': property[5],
                 'CompanyName': property[6],
                 'MobileNumber': property[7],
-                'SelfieWithPropertyURL': property[8],
-                'PropertyImageURL': property[9],
-                'VisitingCardURL': property[10],
-                'CreatedAt': property[11],
-                'ModifiedAt': property[12],
-                'UserID': property[13]  # Adding the UserID field to track property owners
+                'PEmail': property[8],  # Include PEmail in the response
+                'SelfieWithPropertyURL': property[9],
+                'PropertyImageURL': property[10],
+                'VisitingCardURL': property[11],
+                'CreatedAt': property[12].isoformat(),
+                'ModifiedAt': property[13].isoformat() if property[13] else None,  # Handle potential NULL value for ModifiedAt
+                'UserID': property[14],  # Track the UserID (property owner)
+                'WishlistStatus': False if property[15] is None or property[15] == 1 else True  # Wishlist is False if not present or deleted
             }
             property_list.append(property_details)
 
@@ -1445,9 +1454,66 @@ def get_all_properties(user_id):
         print(f"Error retrieving all properties: {e}")
         return jsonify({'status': 500, 'message': 'An error occurred while retrieving the properties'}), 500
 
+
 @app.route('/api/user/properties', methods=['GET'])
 @token_required
 def get_user_properties(user_id):
+    try:
+        # Connect to the database
+        connection = get_db_connection()
+        if not connection:
+            return jsonify({'status': 500, 'message': 'Database connection failed'}), 500
+
+        cursor = connection.cursor()
+
+        # Query to get all properties for the authenticated user, including wishlist status and PEmail
+        query = """
+            SELECT p.PropertyID, p.PName, p.Address, p.Latitude, p.Longitude, p.Designation, 
+                   p.CompanyName, p.MobileNumber, p.PEmail,  -- Include PEmail
+                   p.SelfieWithPropertyURL, p.PropertyImageURL, p.VisitingCardURL, 
+                   p.CreatedAt, p.ModifiedAt,
+                   w.IsDeleted AS WishlistStatus  -- Fetch IsDeleted from Wishlist
+            FROM [dbo].[tbOPT_Property] p
+            LEFT JOIN [dbo].[tbOPT_Wishlist] w ON p.PropertyID = w.PropertyID AND w.UserID = ?  -- Join with Wishlist
+            WHERE p.UserID = ? AND p.IsDeleted = 0
+        """
+        cursor.execute(query, (user_id, user_id))  # Pass user_id twice for both user and wishlist
+
+        properties = cursor.fetchall()
+
+        if properties:
+            property_list = []
+            for property in properties:
+                # Add all the fields including PEmail and WishlistStatus
+                property_list.append({
+                    'PropertyID': property[0],
+                    'PName': property[1],
+                    'Address': property[2],
+                    'Latitude': property[3],
+                    'Longitude': property[4],
+                    'Designation': property[5],
+                    'CompanyName': property[6],
+                    'MobileNumber': property[7],
+                    'PEmail': property[8],  # Include PEmail in the response
+                    'SelfieWithPropertyURL': property[9],
+                    'PropertyImageURL': property[10],
+                    'VisitingCardURL': property[11],
+                    'CreatedAt': property[12].isoformat(),
+                    'ModifiedAt': property[13].isoformat() if property[13] else None,  # Handle potential NULL value
+                    'WishlistStatus': False if property[14] is None or property[14] == 1 else True  # Wishlist is False if not present or deleted
+                })
+            cursor.close()
+
+            # Return the list of properties
+            return jsonify({'status': 200, 'properties': property_list}), 200
+        else:
+            cursor.close()
+            return jsonify({'status': 404, 'message': 'No properties found for this user'}), 404
+
+    except Exception as e:
+        print(f"Error retrieving properties: {e}")
+        return jsonify({'status': 500, 'message': 'An error occurred while retrieving properties'}), 500
+
     try:
         # Connect to the database
         connection = get_db_connection()
