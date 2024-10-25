@@ -721,35 +721,39 @@ def vr_discover_listing(user_id):
 
         cursor = conn.cursor()
 
-        # Adjust the SQL query based on the show_all flag
+        # Adjust the SQL query based on the show_all flag, including the wishlist status check
         if show_all:
             cursor.execute("""
-                SELECT [VR360ID], [CategoryID], [SubCategoryID], [Country], [State], 
-                       [City], [PropertyName], [PropertyDescription], [PropertyImageURL], 
-                       [CategoryTitle], [AvgPropertyRating], [ButtonTitle], [ButtonURL], 
-                       [PartofPackage], [SortOrder], [IsActive], [IsDeleted], 
-                       [CreatedDate], [ModifiedDate]
-                FROM [dbo].[tbDS_VR360]
-                WHERE IsActive = 1 AND IsDeleted = 0
-                ORDER BY SortOrder ASC
-            """)
+                SELECT vr.[VR360ID], vr.[CategoryID], vr.[SubCategoryID], vr.[Country], vr.[State], 
+                       vr.[City], vr.[PropertyName], vr.[PropertyDescription], vr.[PropertyImageURL], 
+                       vr.[CategoryTitle], vr.[AvgPropertyRating], vr.[ButtonTitle], vr.[ButtonURL], 
+                       vr.[PartofPackage], vr.[SortOrder], vr.[IsActive], vr.[IsDeleted], 
+                       vr.[CreatedDate], vr.[ModifiedDate],
+                       wl.IsDeleted AS WishlistStatus
+                FROM [dbo].[tbDS_VR360] vr
+                LEFT JOIN [dbo].[tbDS_Wishlist] wl ON vr.[VR360ID] = wl.[VR360ID] AND wl.[UserID] = ?  
+                WHERE vr.IsActive = 1 AND vr.IsDeleted = 0
+                ORDER BY vr.SortOrder ASC
+            """, (user_id,))
         else:
             cursor.execute("""
-                SELECT TOP 10 [VR360ID], [CategoryID], [SubCategoryID], [Country], [State], 
-                              [City], [PropertyName], [PropertyDescription], [PropertyImageURL], 
-                              [CategoryTitle], [AvgPropertyRating], [ButtonTitle], [ButtonURL], 
-                              [PartofPackage], [SortOrder], [IsActive], [IsDeleted], 
-                              [CreatedDate], [ModifiedDate]
-                FROM [dbo].[tbDS_VR360]
-                WHERE IsActive = 1 AND IsDeleted = 0
-                ORDER BY SortOrder ASC
-            """)
+                SELECT TOP 10 vr.[VR360ID], vr.[CategoryID], vr.[SubCategoryID], vr.[Country], vr.[State], 
+                              vr.[City], vr.[PropertyName], vr.[PropertyDescription], vr.[PropertyImageURL], 
+                              vr.[CategoryTitle], vr.[AvgPropertyRating], vr.[ButtonTitle], vr.[ButtonURL], 
+                              vr.[PartofPackage], vr.[SortOrder], vr.[IsActive], vr.[IsDeleted], 
+                              vr.[CreatedDate], vr.[ModifiedDate],
+                              wl.IsDeleted AS WishlistStatus
+                FROM [dbo].[tbDS_VR360] vr
+                LEFT JOIN [dbo].[tbDS_Wishlist] wl ON vr.[VR360ID] = wl.[VR360ID] AND wl.[UserID] = ?  
+                WHERE vr.IsActive = 1 AND vr.IsDeleted = 0
+                ORDER BY vr.SortOrder ASC
+            """, (user_id,))
 
         properties = cursor.fetchall()
         if not properties:
             return jsonify({'status': 404, 'message': 'No properties found'}), 404
 
-        # Extract property details from the fetched results
+        # Extract property details and wishlist status
         property_list = [
             {
                 'VR360ID': prop[0],
@@ -770,7 +774,8 @@ def vr_discover_listing(user_id):
                 'IsActive': prop[15],
                 'IsDeleted': prop[16],
                 'CreatedDate': prop[17],
-                'ModifiedDate': prop[18]
+                'ModifiedDate': prop[18],
+                'WishlistStatus': False if prop[19] is None or prop[19] == 1 else True  # Wishlist is True if present and not deleted
             }
             for prop in properties
         ]
@@ -789,6 +794,7 @@ def vr_discover_listing(user_id):
         if conn:
             conn.close()
 
+
 # API route to get an individual VR360 listing by ID
 @app.route('/api/vr-discover-listing/<int:vr360_id>', methods=['GET'])
 @token_required  # Apply token validation to this route as well
@@ -801,7 +807,7 @@ def get_vr360_listing(user_id, vr360_id):
 
         cursor = conn.cursor()
 
-        # SQL query to fetch the VR360 details by ID with country name join
+        # SQL query to fetch the VR360 details by ID with country name and wishlist status
         cursor.execute("""
             SELECT vr.[VR360ID], vr.[CategoryID], vr.[SubCategoryID], vr.[Country], vr.[State], 
                    vr.[City], vr.[PropertyName], vr.[PropertyDescription], vr.[PropertyImageURL], 
@@ -809,22 +815,24 @@ def get_vr360_listing(user_id, vr360_id):
                    vr.[PartofPackage], vr.[SortOrder], vr.[IsActive], vr.[IsDeleted], 
                    vr.[CreatedDate], vr.[ModifiedDate],
                    vr.[PropertyFeatures], vr.[FeaturesHeading], vr.[CityName], 
-                   cn.[Name]  -- Fetch country name from tbMS_Country
+                   cn.[Name],  -- Fetch country name from tbMS_Country
+                   wl.IsDeleted AS WishlistStatus
             FROM [dbo].[tbDS_VR360] vr
-            LEFT JOIN [dbo].[tbMS_Country] cn ON vr.[Country] = cn.[CountryID]  -- Join with tbMS_Country table
+            LEFT JOIN [dbo].[tbMS_Country] cn ON vr.[Country] = cn.[CountryID]  
+            LEFT JOIN [dbo].[tbDS_Wishlist] wl ON vr.[VR360ID] = wl.[VR360ID] AND wl.[UserID] = ?  
             WHERE vr.[VR360ID] = ? AND vr.[IsActive] = 1 AND vr.[IsDeleted] = 0
-        """, (vr360_id,))
+        """, (user_id, vr360_id))
 
         property = cursor.fetchone()
         if not property:
             return jsonify({'status': 404, 'message': f'Property with VR360ID {vr360_id} not found'}), 404
 
-        # Extract property details from the fetched result
+        # Extract property details and wishlist status
         property_data = {
             'VR360ID': property[0],
             'CategoryID': property[1],
             'SubCategoryID': property[2],
-            'Country': property[22],  # CountryName instead of CountryID
+            'Country': property[22],  # Country name instead of CountryID
             'State': property[4],
             'City': property[5],
             'PropertyName': property[6],
@@ -842,7 +850,8 @@ def get_vr360_listing(user_id, vr360_id):
             'ModifiedDate': property[18],
             'PropertyFeatures': property[19],
             'FeaturesHeading': property[20],
-            'CityName': property[21]
+            'CityName': property[21],
+            'WishlistStatus': False if property[23] is None or property[23] == 1 else True  # Wishlist is True if present and not deleted
         }
 
         return jsonify({
@@ -1010,6 +1019,7 @@ def submit_review_comment(user_id, vr360_id):
         # Close the connection if it was successfully created
         if conn:
             conn.close()
+
 @app.route('/api/vr-reviews/<int:vr360_id>', methods=['GET'])
 @token_required  # Assuming you are using the same token-based authentication
 def get_reviews(user_id, vr360_id):
