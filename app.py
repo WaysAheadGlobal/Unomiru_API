@@ -1313,13 +1313,14 @@ def save_or_update_property(user_id, is_update, property_id=None):
 
         # Extract values from the form data, stripping spaces
         pname = data.get('PName', '').strip()
-        pemail = data.get('PEmail', '').strip()  # Extract PEmail
-        address = data.get('Address', '').strip() or None  # Optional
-        latitude = data.get('Latitude', '').strip() or None  # Optional
-        longitude = data.get('Longitude', '').strip() or None  # Optional
-        designation = data.get('Designation', '').strip() or None  # Optional
-        company_name = data.get('CompanyName', '').strip() or None  # Optional
-        mobile_number = data.get('MobileNumber', '').strip() or None  # Optional
+        pemail = data.get('PEmail', '').strip()
+        address = data.get('Address', '').strip() or None
+        latitude = data.get('Latitude', '').strip() or None
+        longitude = data.get('Longitude', '').strip() or None
+        designation = data.get('Designation', '').strip() or None
+        company_name = data.get('CompanyName', '').strip() or None
+        mobile_number = data.get('MobileNumber', '').strip() or None
+        click_datetime = data.get('ClickDateTime', '').strip() or None  # Extract ClickDateTime
 
         # Check if required fields are present
         if not pname:
@@ -1333,7 +1334,7 @@ def save_or_update_property(user_id, is_update, property_id=None):
 
         # Log extracted data for debugging
         print(f"Extracted data: PName={pname}, PEmail={pemail}, Address={address}, Latitude={latitude}, Longitude={longitude}, "
-              f"Designation={designation}, CompanyName={company_name}, MobileNumber={mobile_number}")
+              f"Designation={designation}, CompanyName={company_name}, MobileNumber={mobile_number}, ClickDateTime={click_datetime}")
 
         # Handle file uploads (images) if sent
         selfie = request.files.get('SelfieWithPropertyURL')
@@ -1356,17 +1357,18 @@ def save_or_update_property(user_id, is_update, property_id=None):
         cursor = connection.cursor()
 
         if is_update:
-           # Update the existing property
+            # Update the existing property
             update_query = """
                 UPDATE [dbo].[tbOPT_Property]
                 SET PName = ?, PEmail = ?, Address = ?, Latitude = ?, Longitude = ?, Designation = ?, 
                     CompanyName = ?, MobileNumber = ?, SelfieWithPropertyURL = ?, 
-                    PropertyImageURL = ?, VisitingCardURL = ?, ModifiedBy = ?, ModifiedAt = GETDATE()
+                    PropertyImageURL = ?, VisitingCardURL = ?, ModifiedBy = ?, ModifiedAt = GETDATE(),
+                    ClickDateTime = ?
                 WHERE PropertyID = ?
             """
             cursor.execute(update_query, (pname, pemail, address, latitude, longitude, designation, company_name, 
-                                        mobile_number, selfie_url, property_image_url, visiting_card_url, 
-                                        user_id, property_id))
+                                          mobile_number, selfie_url, property_image_url, visiting_card_url, 
+                                          user_id, click_datetime, property_id))
 
             message = 'Property updated successfully'
         else:
@@ -1374,12 +1376,13 @@ def save_or_update_property(user_id, is_update, property_id=None):
             insert_query = """
                 INSERT INTO [dbo].[tbOPT_Property] 
                 (UserID, PName, PEmail, Address, Latitude, Longitude, Designation, CompanyName, MobileNumber, 
-                SelfieWithPropertyURL, PropertyImageURL, VisitingCardURL, IsActive, IsDeleted, IsPermission, CreatedAt, ModifiedBy, ModifiedAt)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 0, GETDATE(), ?, GETDATE())
+                 SelfieWithPropertyURL, PropertyImageURL, VisitingCardURL, IsActive, IsDeleted, IsPermission, 
+                 CreatedAt, ModifiedBy, ModifiedAt, ClickDateTime)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 0, GETDATE(), ?, GETDATE(), ?)
             """
             cursor.execute(insert_query, (user_id, pname, pemail, address, latitude, longitude, designation, 
-                                        company_name, mobile_number, selfie_url, property_image_url, 
-                                        visiting_card_url, user_id))
+                                          company_name, mobile_number, selfie_url, property_image_url, 
+                                          visiting_card_url, user_id, click_datetime))
 
             message = 'Property saved successfully'
 
@@ -1400,8 +1403,6 @@ def is_valid_numeric(value):
     except ValueError:
         return False
 
-
-
 # Route to get all properties except those of the logged-in user
 @app.route('/api/properties', methods=['GET'])
 @token_required
@@ -1414,12 +1415,12 @@ def get_all_properties(user_id):
 
         cursor = connection.cursor()
 
-        # Query to get all properties excluding those of the logged-in user, with wishlist status and PEmail
+        # Query to get all properties excluding those of the logged-in user, with wishlist status, PEmail, and ClickDateTime
         query = """
             SELECT p.PropertyID, p.PName, p.Address, p.Latitude, p.Longitude, p.Designation, 
                    p.CompanyName, p.MobileNumber, p.PEmail,  -- Include PEmail
                    p.SelfieWithPropertyURL, p.PropertyImageURL, p.VisitingCardURL, 
-                   p.CreatedAt, p.ModifiedAt, p.UserID,
+                   p.CreatedAt, p.ModifiedAt, p.UserID, p.ClickDateTime,  -- Include ClickDateTime
                    w.IsDeleted AS WishlistStatus  -- Fetch IsDeleted from Wishlist
             FROM [dbo].[tbOPT_Property] p
             LEFT JOIN [dbo].[tbOPT_Wishlist] w ON p.PropertyID = w.PropertyID AND w.UserID = ?  -- Join with Wishlist to check wishlist status for the logged-in user
@@ -1452,7 +1453,8 @@ def get_all_properties(user_id):
                 'CreatedAt': property[12].isoformat(),
                 'ModifiedAt': property[13].isoformat() if property[13] else None,  # Handle potential NULL value for ModifiedAt
                 'UserID': property[14],  # Track the UserID (property owner)
-                'WishlistStatus': False if property[15] is None or property[15] == 1 else True  # Wishlist is False if not present or deleted
+                'ClickDateTime': property[15].isoformat() if property[15] else None,  # Include ClickDateTime in response
+                'WishlistStatus': False if property[16] is None or property[16] == 1 else True,  # Wishlist is False if not present or deleted
             }
             property_list.append(property_details)
 
@@ -1476,12 +1478,12 @@ def get_user_properties(user_id):
 
         cursor = connection.cursor()
 
-        # Query to get all properties for the authenticated user, including wishlist status and PEmail
+        # Query to get all properties for the authenticated user, including wishlist status, PEmail, and ClickDateTime
         query = """
             SELECT p.PropertyID, p.PName, p.Address, p.Latitude, p.Longitude, p.Designation, 
                    p.CompanyName, p.MobileNumber, p.PEmail,  -- Include PEmail
                    p.SelfieWithPropertyURL, p.PropertyImageURL, p.VisitingCardURL, 
-                   p.CreatedAt, p.ModifiedAt,
+                   p.CreatedAt, p.ModifiedAt, p.ClickDateTime,  -- Include ClickDateTime
                    w.IsDeleted AS WishlistStatus  -- Fetch IsDeleted from Wishlist
             FROM [dbo].[tbOPT_Property] p
             LEFT JOIN [dbo].[tbOPT_Wishlist] w ON p.PropertyID = w.PropertyID AND w.UserID = ?  -- Join with Wishlist
@@ -1494,7 +1496,7 @@ def get_user_properties(user_id):
         if properties:
             property_list = []
             for property in properties:
-                # Add all the fields including PEmail and WishlistStatus
+                # Add all the fields including PEmail, WishlistStatus, and ClickDateTime
                 property_list.append({
                     'PropertyID': property[0],
                     'PName': property[1],
@@ -1510,57 +1512,8 @@ def get_user_properties(user_id):
                     'VisitingCardURL': property[11],
                     'CreatedAt': property[12].isoformat(),
                     'ModifiedAt': property[13].isoformat() if property[13] else None,  # Handle potential NULL value
-                    'WishlistStatus': False if property[14] is None or property[14] == 1 else True  # Wishlist is False if not present or deleted
-                })
-            cursor.close()
-
-            # Return the list of properties
-            return jsonify({'status': 200, 'properties': property_list}), 200
-        else:
-            cursor.close()
-            return jsonify({'status': 404, 'message': 'No properties found for this user'}), 404
-
-    except Exception as e:
-        print(f"Error retrieving properties: {e}")
-        return jsonify({'status': 500, 'message': 'An error occurred while retrieving properties'}), 500
-
-    try:
-        # Connect to the database
-        connection = get_db_connection()
-        if not connection:
-            return jsonify({'status': 500, 'message': 'Database connection failed'}), 500
-        
-        cursor = connection.cursor()
-
-        # Query to get all properties for the authenticated user, including all fields
-        query = """
-            SELECT PropertyID, PName, Address, Latitude, Longitude, Designation, 
-                   CompanyName, MobileNumber, SelfieWithPropertyURL, PropertyImageURL, 
-                   VisitingCardURL, CreatedAt, ModifiedAt
-            FROM [dbo].[tbOPT_Property] 
-            WHERE UserID = ? AND IsDeleted = 0
-        """
-        cursor.execute(query, (user_id,))  # Use user_id from the token to get this user's properties
-        properties = cursor.fetchall()
-
-        if properties:
-            property_list = []
-            for property in properties:
-                # Add all the fields to the property list
-                property_list.append({
-                    'PropertyID': property[0],
-                    'PName': property[1],
-                    'Address': property[2],
-                    'Latitude': property[3],
-                    'Longitude': property[4],
-                    'Designation': property[5],
-                    'CompanyName': property[6],
-                    'MobileNumber': property[7],
-                    'SelfieWithPropertyURL': property[8],
-                    'PropertyImageURL': property[9],
-                    'VisitingCardURL': property[10],
-                    'CreatedAt': property[11].isoformat(),
-                    'ModifiedAt': property[12].isoformat() if property[12] else None  # Handle potential NULL value
+                    'ClickDateTime': property[14].isoformat() if property[14] else None,  # Include ClickDateTime in response
+                    'WishlistStatus': False if property[15] is None or property[15] == 1 else True  # Wishlist is False if not present or deleted
                 })
             cursor.close()
 
@@ -1668,7 +1621,7 @@ def get_property_by_id(user_id, property_id):
         query = """
             SELECT PropertyID, UserID, PName, Address, Latitude, Longitude, Designation, 
                    CompanyName, MobileNumber, SelfieWithPropertyURL, PropertyImageURL, 
-                   VisitingCardURL, CreatedAt, ModifiedAt
+                   VisitingCardURL, CreatedAt, ModifiedAt, ClickTime
             FROM [dbo].[tbOPT_Property]
             WHERE PropertyID = ? AND IsDeleted = 0
         """
@@ -1691,7 +1644,8 @@ def get_property_by_id(user_id, property_id):
                 'PropertyImageURL': property[10],
                 'VisitingCardURL': property[11],
                 'CreatedAt': property[12].isoformat(),  # Convert to ISO format for consistency
-                'ModifiedAt': property[13].isoformat() if property[13] else None  # Handle potential NULL for ModifiedAt
+                'ModifiedAt': property[13].isoformat() if property[13] else None,  # Handle potential NULL for ModifiedAt
+                'ClickTime' : property[14].isoformat(), # Convert to ISO format for consistency
             }
             cursor.close()
             return jsonify({'status': 200, 'property': property_data}), 200
