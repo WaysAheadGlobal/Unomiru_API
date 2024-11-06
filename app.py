@@ -1415,19 +1415,27 @@ def get_all_properties(user_id):
 
         cursor = connection.cursor()
 
-        # Query to get all properties excluding those of the logged-in user, with wishlist status, PEmail, and ClickDateTime
+        # Query to get all properties with average rating, wishlist status, and other details
         query = """
             SELECT p.PropertyID, p.PName, p.Address, p.Latitude, p.Longitude, p.Designation, 
-                   p.CompanyName, p.MobileNumber, p.PEmail,  -- Include PEmail
+                   p.CompanyName, p.MobileNumber, p.PEmail, 
                    p.SelfieWithPropertyURL, p.PropertyImageURL, p.VisitingCardURL, 
-                   p.CreatedAt, p.ModifiedAt, p.UserID, p.ClickDateTime,  -- Include ClickDateTime
-                   w.IsDeleted AS WishlistStatus  -- Fetch IsDeleted from Wishlist
+                   p.CreatedAt, p.ModifiedAt, p.UserID, p.ClickDateTime, 
+                   w.IsDeleted AS WishlistStatus,
+                   COALESCE(avg_reviews.AverageRating, 0) AS AverageRating  -- Average rating for the property
             FROM [dbo].[tbOPT_Property] p
-            LEFT JOIN [dbo].[tbOPT_Wishlist] w ON p.PropertyID = w.PropertyID AND w.UserID = ?  -- Join with Wishlist to check wishlist status for the logged-in user
+            LEFT JOIN [dbo].[tbOPT_Wishlist] w ON p.PropertyID = w.PropertyID AND w.UserID = ?  -- Check wishlist status for the logged-in user
+            LEFT JOIN (
+                SELECT PropertyID, AVG(CAST(Rating AS FLOAT)) AS AverageRating
+                FROM [dbo].[tbOPT_RatingsReviews]
+                WHERE IsActive = 1 AND IsDeleted = 0
+                GROUP BY PropertyID
+            ) avg_reviews ON p.PropertyID = avg_reviews.PropertyID  -- Join with the average rating subquery
             WHERE p.IsActive = 1 AND p.IsDeleted = 0 AND p.UserID != ?  -- Exclude properties of the logged-in user
             ORDER BY p.PropertyID DESC
         """
-        cursor.execute(query, (user_id, user_id))  # Pass user_id twice for both wishlist and excluding user properties
+        # Execute the query with user_id for both wishlist status and exclusion of user properties
+        cursor.execute(query, (user_id, user_id))
 
         properties = cursor.fetchall()
 
@@ -1455,6 +1463,7 @@ def get_all_properties(user_id):
                 'UserID': property[14],  # Track the UserID (property owner)
                 'ClickDateTime': property[15].isoformat() if property[15] else None,  # Include ClickDateTime in response
                 'WishlistStatus': False if property[16] is None or property[16] == 1 else True,  # Wishlist is False if not present or deleted
+                'AverageRating': float(property[17]) if property[17] is not None else 0.0  # Include AverageRating in response
             }
             property_list.append(property_details)
 
@@ -1478,25 +1487,32 @@ def get_user_properties(user_id):
 
         cursor = connection.cursor()
 
-        # Query to get all properties for the authenticated user, including wishlist status, PEmail, and ClickDateTime
+        # Query to get all properties for the authenticated user, including average rating, wishlist status, and other details
         query = """
             SELECT p.PropertyID, p.PName, p.Address, p.Latitude, p.Longitude, p.Designation, 
                    p.CompanyName, p.MobileNumber, p.PEmail,  -- Include PEmail
                    p.SelfieWithPropertyURL, p.PropertyImageURL, p.VisitingCardURL, 
                    p.CreatedAt, p.ModifiedAt, p.ClickDateTime,  -- Include ClickDateTime
-                   w.IsDeleted AS WishlistStatus  -- Fetch IsDeleted from Wishlist
+                   w.IsDeleted AS WishlistStatus,
+                   COALESCE(avg_reviews.AverageRating, 0) AS AverageRating  -- Average rating for the property
             FROM [dbo].[tbOPT_Property] p
             LEFT JOIN [dbo].[tbOPT_Wishlist] w ON p.PropertyID = w.PropertyID AND w.UserID = ?  -- Join with Wishlist
+            LEFT JOIN (
+                SELECT PropertyID, AVG(CAST(Rating AS FLOAT)) AS AverageRating
+                FROM [dbo].[tbOPT_RatingsReviews]
+                WHERE IsActive = 1 AND IsDeleted = 0
+                GROUP BY PropertyID
+            ) avg_reviews ON p.PropertyID = avg_reviews.PropertyID  -- Join with the average rating subquery
             WHERE p.UserID = ? AND p.IsDeleted = 0
         """
-        cursor.execute(query, (user_id, user_id))  # Pass user_id twice for both user and wishlist
+        cursor.execute(query, (user_id, user_id))  # Pass user_id for both wishlist and user properties
 
         properties = cursor.fetchall()
 
         if properties:
             property_list = []
             for property in properties:
-                # Add all the fields including PEmail, WishlistStatus, and ClickDateTime
+                # Add all fields including PEmail, WishlistStatus, ClickDateTime, and AverageRating
                 property_list.append({
                     'PropertyID': property[0],
                     'PName': property[1],
@@ -1513,7 +1529,8 @@ def get_user_properties(user_id):
                     'CreatedAt': property[12].isoformat(),
                     'ModifiedAt': property[13].isoformat() if property[13] else None,  # Handle potential NULL value
                     'ClickDateTime': property[14].isoformat() if property[14] else None,  # Include ClickDateTime in response
-                    'WishlistStatus': False if property[15] is None or property[15] == 1 else True  # Wishlist is False if not present or deleted
+                    'WishlistStatus': False if property[15] is None or property[15] == 1 else True,  # Wishlist is False if not present or deleted
+                    'AverageRating': float(property[16]) if property[16] is not None else 0.0  # Include AverageRating in response
                 })
             cursor.close()
 
@@ -1526,7 +1543,6 @@ def get_user_properties(user_id):
     except Exception as e:
         print(f"Error retrieving properties: {e}")
         return jsonify({'status': 500, 'message': 'An error occurred while retrieving properties'}), 500
-
 
 @app.route('/api/property/search', methods=['POST'])
 @token_required
