@@ -914,8 +914,7 @@ def get_vr360_listing(user_id, vr360_id):
 
 # Search API for VR360 using single search input for multiple columns
 @app.route('/api/vr360/search', methods=['POST'])
-@token_required
-def search_vr360(user_id):
+def search_vr360():
     try:
         # Parse the JSON request body
         data = request.get_json()
@@ -1000,6 +999,7 @@ def search_vr360(user_id):
     finally:
         if conn:
             conn.close()
+
 
 @app.route('/api/vr-review/<int:vr360_id>', methods=['POST'])
 @token_required
