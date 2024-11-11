@@ -163,50 +163,114 @@ def split_name(name):
         return parts[0], ''
     return parts[0], parts[1]
 
-# Send email function
+# Helper function to encode data as UTF-8 bytes
+def encode(data):
+    return data.encode("utf-8")
+
+# HTML email template for the OTP email with personalized greeting
+def otp_email_template(first_name, otp):
+    return f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Your OTP Code</title>
+        <style>
+            body {{
+                font-family: Arial, sans-serif;
+                color: #333;
+            }}
+            .container {{
+                max-width: 600px;
+                margin: 0 auto;
+                padding: 20px;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+            }}
+            .header {{
+                background-color: #f8f9fa;
+                padding: 10px;
+                text-align: center;
+                font-size: 24px;
+                color: #333;
+            }}
+            .content {{
+                margin-top: 20px;
+                line-height: 1.6;
+            }}
+            .footer {{
+                margin-top: 30px;
+                font-size: 12px;
+                color: #777;
+                text-align: center;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                Your OTP Code
+            </div>
+            <div class="content">
+                <p>Dear {first_name},</p>
+                <p>Your OTP code is <strong>{otp}</strong>. It is valid for 3 minutes.</p>
+                <p>Best regards,<br>UnoMiru</p>
+            </div>
+            <div class="footer">
+                &copy; {datetime.datetime.now().year} UnoMiru. All rights reserved.
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+# Send email function using the HTML template
 def send_email(recipient, subject, body):
     conn = http.client.HTTPSConnection("api.waysdatalabs.com")
     boundary = 'wL36Yn8afVp8Ag7AmP8qZ0SA4n1v9T'
     dataList = []
 
     dataList.append(encode('--' + boundary))
-    dataList.append(encode('Content-Disposition: form-data; name=Recipient;'))
-    dataList.append(encode('Content-Type: {}'.format('text/plain')))
+    dataList.append(encode('Content-Disposition: form-data; name="Recipient"'))
+    dataList.append(encode('Content-Type: text/plain'))
     dataList.append(encode(''))
     dataList.append(encode(recipient))
 
     dataList.append(encode('--' + boundary))
-    dataList.append(encode('Content-Disposition: form-data; name=Subject;'))
-    dataList.append(encode('Content-Type: {}'.format('text/plain')))
+    dataList.append(encode('Content-Disposition: form-data; name="Subject"'))
+    dataList.append(encode('Content-Type: text/plain'))
     dataList.append(encode(''))
     dataList.append(encode(subject))
 
     dataList.append(encode('--' + boundary))
-    dataList.append(encode('Content-Disposition: form-data; name=Body;'))
-    dataList.append(encode('Content-Type: {}'.format('text/plain')))
+    dataList.append(encode('Content-Disposition: form-data; name="Body"'))
+    dataList.append(encode('Content-Type: text/html'))  # Specify HTML content type
     dataList.append(encode(''))
-    dataList.append(encode(body))
+    dataList.append(encode(body))  # The HTML body with formatting
 
     dataList.append(encode('--' + boundary))
-    dataList.append(encode('Content-Disposition: form-data; name=ApiKey;'))
-    dataList.append(encode('Content-Type: {}'.format('text/plain')))
+    dataList.append(encode('Content-Disposition: form-data; name="ApiKey"'))
+    dataList.append(encode('Content-Type: text/plain'))
     dataList.append(encode(''))
     dataList.append(encode("6A7339A3-E70B-4A8D-AA23-0264125F4959"))
 
-    dataList.append(encode('--'+boundary+'--'))
+    dataList.append(encode('--' + boundary + '--'))
     dataList.append(encode(''))
 
-    body = b'\r\n'.join(dataList)
-    payload = body
+    payload = b'\r\n'.join(dataList)
     headers = {
        'Content-type': 'multipart/form-data; boundary={}'.format(boundary) 
     }
+
     conn.request("POST", "/api/EmailSender/SendMail", payload, headers)
     res = conn.getresponse()
     data = res.read()
     print(data.decode("utf-8"))
 
+    
 # REGISTER API
+# Flask route for user signup
 @app.route('/api/signup', methods=['POST'])
 def signup():
     data = request.json
@@ -215,15 +279,12 @@ def signup():
         return jsonify({'status': 400, 'message': 'No data provided'}), 400
 
     user_name = data.get('user_name', '').strip()
-    phone_number = str(data.get('phone_number', '')).strip()  # Ensure phone_number is a string
+    phone_number = str(data.get('phone_number', '')).strip()
     email = data.get('email', '').strip()
     country_code = data.get('country_code', '').strip()
     device_name = data.get('device_name', '').strip()
-    
-    # Get dynamic UserTypeId from request, default to 4 if not provided
     user_type_id = data.get('user_type_id', 4)
 
-    # Validate mandatory fields
     if not phone_number:
         return jsonify({'status': 400, 'message': 'Phone number is mandatory'}), 400
 
@@ -233,27 +294,18 @@ def signup():
 
     try:
         cursor = conn.cursor()
-
-        # Check if user already exists
         cursor.execute("SELECT UserId, IsActive FROM tbgl_User WHERE Mobile = ? OR Email = ?", (phone_number, email))
         user_record = cursor.fetchone()
         
         if user_record:
             user_id, is_active = user_record
             if is_active == 0:
-                # User exists but is not verified, resend OTP
                 first_name, last_name = split_name(user_name)
                 otp = generate_otp()
                 hashed_otp = hash_otp(otp)
-                token = generate_jwt(user_id)  # Generate token here
+                token = generate_jwt(user_id)
 
-                # Update CreatedDate and send OTP
-                cursor.execute("""
-                    UPDATE tbgl_User 
-                    SET CreatedDate = GETDATE()
-                    WHERE UserId = ?
-                """, (user_id,))
-                
+                cursor.execute("UPDATE tbgl_User SET CreatedDate = GETDATE() WHERE UserId = ?", (user_id,))
                 cursor.execute("""
                     INSERT INTO tbgl_OTP_Login (UserId, OTP, app, Created_at, Updated_at, OtpVerified_at, JwtToken, TokenExpires_at, TokenIssued_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -261,59 +313,51 @@ def signup():
 
                 conn.commit()
 
-                # Send OTP via email
+                # Use HTML email template
                 email_subject = "Your OTP Code"
-                email_body = f"Dear {first_name},\n\nYour OTP code is {otp}. It is valid for 3 minutes.\n\nBest regards,\nUnoMiru"
+                email_body = otp_email_template(first_name, otp)
                 send_email(email, email_subject, email_body)
 
                 return jsonify({'status': 200, 'message': 'Account exists but is not verified. OTP resent to email.', 'otp_sent_to': email, 'token': token, 'user_id': user_id})
 
             return jsonify({'status': 409, 'message': 'Phone number or email already exists'}), 409
 
-        # Split user_name into FirstName and LastName
         first_name, last_name = split_name(user_name)
-        
-        # Generate OTP and temporary token
         otp = generate_otp()
         hashed_otp = hash_otp(otp)
 
-        # Insert user into tbgl_User table and retrieve the UserId, using the dynamic UserTypeId
         cursor.execute("""
             INSERT INTO tbgl_User (FirstName, LastName, Email, Mobile, UserTypeId, CountryCode, CreatedDate)
             OUTPUT INSERTED.UserId
             VALUES (?, ?, ?, ?, ?, ?, GETDATE())
         """, (first_name, last_name, email, phone_number, user_type_id, country_code))
 
-        user_id = cursor.fetchone()[0]  # Fetch the UserId directly from the OUTPUT clause
-
+        user_id = cursor.fetchone()[0]
         if not user_id:
             raise Exception("Failed to retrieve UserId")
 
-        # Use local machine time for consistency
         created_at = datetime.datetime.now()
         otp_verified_at = created_at + datetime.timedelta(minutes=3)
-        token = generate_jwt(user_id)  # Correcting this to use user_id later
+        token = generate_jwt(user_id)
 
-        # Insert OTP into tbgl_OTP_Login table using the retrieved UserId and include device_name and JWT token details
         cursor.execute("""
             INSERT INTO tbgl_OTP_Login (UserId, OTP, app, Created_at, Updated_at, OtpVerified_at, JwtToken, TokenExpires_at, TokenIssued_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (user_id, hashed_otp, device_name, created_at, created_at, otp_verified_at, token, created_at + datetime.timedelta(hours=1), created_at))
 
-        conn.commit()  # Commit the transaction
+        conn.commit()
 
-        # Send OTP via email
+        # Use HTML email template
         email_subject = "Your OTP Code"
-        email_body = f"Dear {first_name},\n\nYour OTP code is {otp}. It is valid for 3 minutes.\n\nBest regards,\nUnoMiru"
+        email_body = otp_email_template(first_name, otp)
         send_email(email, email_subject, email_body)
 
-        # Return response with UserId
         return jsonify({
             'status': 200,
             'message': 'Signup successful. OTP sent to email.',
             'otp_sent_to': email,
             'token': token,
-            'user_id': user_id  # Return the UserId
+            'user_id': user_id
         })
 
     except Exception as e:
@@ -321,7 +365,7 @@ def signup():
         return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
     finally:
         conn.close()
-
+        
 @app.route('/api/verify-signup-otp', methods=['POST'])
 def verify_signup_otp():
     data = request.json
@@ -401,6 +445,7 @@ def verify_signup_otp():
     finally:
         conn.close()
 
+# Flask route for login
 @app.route('/api/login', methods=['POST'])
 def login():
     data = request.json
@@ -422,7 +467,7 @@ def login():
 
         # Check if user exists by email and is active
         cursor.execute("""
-            SELECT UserId, Email, IsActive 
+            SELECT UserId, FirstName, Email, IsActive 
             FROM tbgl_User 
             WHERE Email = ?
         """, (email,))
@@ -432,7 +477,7 @@ def login():
         if not user:
             return jsonify({'status': 404, 'message': 'Email does not exist'}), 404
 
-        user_id, email, is_active = user
+        user_id, first_name, email, is_active = user
 
         # Check if the user's account is active
         if is_active == 0:
@@ -455,9 +500,9 @@ def login():
 
         conn.commit()  # Commit the transaction
 
-        # Send OTP via email
+        # Email content using the HTML template
         email_subject = "Your OTP Code"
-        email_body = f"Dear User,\n\nYour OTP code is {otp}. It is valid for 3 minutes.\n\nBest regards,\nUnoMiru"
+        email_body = otp_email_template(first_name, otp)  # Use the HTML email template with first_name
         send_email(email, email_subject, email_body)
 
         # Return response
