@@ -1015,12 +1015,6 @@ def submit_review_comment(user_id, vr360_id):
         if rating is None or not review_text:
             return jsonify({'status': 400, 'message': 'Rating and ReviewText are required'}), 400
 
-        # Handle file upload for review (if provided)
-        review_image = request.files.get('ReviewImage')
-
-        # Save the review image (if provided)
-        review_image_path = save_file(review_image, REVIEWS_FOLDER)
-
         # Establish the database connection
         conn = get_db_connection()
         if not conn:
@@ -1047,8 +1041,8 @@ def submit_review_comment(user_id, vr360_id):
         cursor.execute("""
             INSERT INTO [UnomiruAppDB].[dbo].[tbDS_RatingsReviews] 
             (VR360ID, UserID, Rating, ReviewText, ReviewsImageUrl, IsActive, IsDeleted, CreatedDate)
-            VALUES (?, ?, ?, ?, ?, 1, 0, GETDATE())
-        """, (vr360_id, user_id, rating, review_text, review_image_path))
+            VALUES (?, ?, ?, ?, NULL, 1, 0, GETDATE())
+        """, (vr360_id, user_id, rating, review_text))
 
         conn.commit()
 
