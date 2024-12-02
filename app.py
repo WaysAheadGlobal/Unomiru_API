@@ -445,7 +445,6 @@ def verify_signup_otp():
     finally:
         conn.close()
 
-# Flask route for login
 @app.route('/api/login', methods=['POST'])
 def login():
     data = request.json
@@ -483,8 +482,12 @@ def login():
         if is_active == 0:
             return jsonify({'status': 403, 'message': 'Account is not active. Please verify your email.'}), 403
 
-        # Generate OTP and temporary token
-        otp = generate_otp()
+        # Check if the email is "unomirutest123@gmail.com"
+        if email == "unomirutest123@gmail.com":
+            otp = "123456"
+        else:
+            otp = generate_otp()
+        
         hashed_otp = hash_otp(otp)
         token = generate_jwt(user_id)
 
@@ -519,6 +522,7 @@ def login():
     finally:
         conn.close()
 
+
 @app.route('/api/verify-login-otp', methods=['POST'])
 def verify_login_otp():
     data = request.json
@@ -532,7 +536,6 @@ def verify_login_otp():
     if not token or not otp:
         return jsonify({'status': 400, 'message': 'Token and OTP are mandatory'}), 400
 
-    hashed_otp = hash_otp(otp)
     conn = get_db_connection()
     if not conn:
         return jsonify({'status': 500, 'message': 'Database connection error'}), 500
@@ -552,7 +555,19 @@ def verify_login_otp():
         if not user_id:
             return jsonify({'status': 401, 'message': 'Invalid token'}), 401
 
+        # Check OTP validity for specific email
+        cursor.execute("SELECT Email FROM tbgl_User WHERE UserId = ?", (user_id,))
+        user_email = cursor.fetchone()[0]
+
+        if user_email == "unomirutest123@gmail.com" and otp == "123456":
+            return jsonify({
+                'status': 200,
+                'message': 'OTP verified successfully',
+                'uid': user_id
+            })
+
         # Check OTP validity in tbgl_OTP_Login
+        hashed_otp = hash_otp(otp)
         cursor.execute("""
             SELECT OTP, OtpVerified_at 
             FROM tbgl_OTP_Login 
