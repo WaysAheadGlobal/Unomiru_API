@@ -2140,6 +2140,51 @@ def subscribe_newsletter():
             conn.close()
 
 
+@app.route('/api/user/delete', methods=['POST'])
+def delete_user():
+    try:
+        # Parse the incoming JSON request
+        data = request.get_json()
+        email = data.get('email')
+        mobile = data.get('mobile')
+        modified_by = data.get('modified_by')  # Assuming you track who modified it
+        
+        if not email or not mobile:
+            return jsonify({"error": "Email and mobile number are required"}), 400
+        
+        # Establish database connection
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Prepare the query
+        update_query = """
+            UPDATE [UnomiruAppDB].[dbo].[tbgl_User]
+            SET [IsDelete] = 1,
+                [IsActive] = 0,
+                [ModifyBy] = ?,
+                [ModifiedDate] = GETDATE()
+            WHERE [Email] = ? AND [Mobile] = ?
+        """
+        
+        # Execute the query
+        cursor.execute(update_query, (modified_by, email, mobile))
+        conn.commit()
+        
+        # Check if any rows were updated
+        if cursor.rowcount == 0:
+            return jsonify({"error": "No matching user found"}), 404
+        
+        return jsonify({"message": "User successfully deleted"}), 200
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
+    finally:
+        # Ensure the connection is closed
+        if conn:
+            conn.close()
+
+
 if __name__ == '__main__':
     app.run(debug=True)
 
