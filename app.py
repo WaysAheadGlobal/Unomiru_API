@@ -615,6 +615,51 @@ def verify_login_otp():
     finally:
         conn.close()
 
+@app.route('/api/user-profile', methods=['GET'])
+@token_required
+def user_profile(user_id):
+    try:
+        # Connect to the database
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'status': 500, 'message': 'Database connection error'}), 500
+
+        cursor = conn.cursor()
+
+        # Fetch user profile details from the tbgl_User table
+        cursor.execute("""
+            SELECT UserId, FirstName, LastName, Email, UserTypeId, CreatedDate 
+            FROM tbgl_User 
+            WHERE UserId = ?
+        """, (user_id,))
+
+        user = cursor.fetchone()
+        if not user:
+            return jsonify({'status': 404, 'message': 'User not found'}), 404
+
+        # Prepare the response
+        user_profile = {
+            'user_id': user[0],
+            'first_name': user[1],
+            'last_name': user[2],
+            'email': user[3],
+            'user_type_id': user[4],
+            'created_at': user[5].strftime('%Y-%m-%d %H:%M:%S') if user[5] else None
+        }
+
+        return jsonify({
+            'status': 200,
+            'message': 'User profile retrieved successfully',
+            'data': user_profile
+        }), 200
+
+    except Exception as e:
+        print(f"Error retrieving user profile: {e}")
+        return jsonify({'status': 500, 'message': 'Internal Server Error'}), 500
+    finally:
+        if conn:
+            conn.close()
+
 @app.route('/api/all-discover', methods=['GET'])
 @token_required
 def get_tags(user_id):  # Accept the user_id parameter
