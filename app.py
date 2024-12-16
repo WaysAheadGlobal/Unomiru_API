@@ -994,9 +994,9 @@ def search_vr360():
             FROM [dbo].[tbDS_VR360]
             WHERE IsActive = 1 AND IsDeleted = 0
             AND (
-                [Country] LIKE ? OR
-                [State] LIKE ? OR
-                [City] LIKE ? OR
+                # [Country] LIKE ? OR
+                # [State] LIKE ? OR
+                # [City] LIKE ? OR
                 [PropertyName] LIKE ? OR
                 [CategoryTitle] LIKE ?
             )
