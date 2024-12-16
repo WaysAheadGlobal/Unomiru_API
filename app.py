@@ -973,6 +973,7 @@ def get_vr360_listing(user_id, vr360_id):
             conn.close()
 
 # Search API for VR360 using single search input for multiple columns
+
 @app.route('/api/vr360/search', methods=['POST'])
 def search_vr360():
     try:
@@ -985,7 +986,7 @@ def search_vr360():
         if not search_input:
             return jsonify({'status': 400, 'message': 'Search input is required'}), 400
 
-        # Build the SQL query to search across multiple columns
+        # Build the SQL query to search only [PropertyName] and [CategoryTitle]
         query = """
             SELECT [VR360ID], [CategoryID], [SubCategoryID], [Country], [State], [City], 
                    [PropertyName], [PropertyDescription], [PropertyImageURL], [CategoryTitle],
@@ -994,9 +995,6 @@ def search_vr360():
             FROM [dbo].[tbDS_VR360]
             WHERE IsActive = 1 AND IsDeleted = 0
             AND (
-                # [Country] LIKE ? OR
-                # [State] LIKE ? OR
-                # [City] LIKE ? OR
                 [PropertyName] LIKE ? OR
                 [CategoryTitle] LIKE ?
             )
@@ -1013,8 +1011,8 @@ def search_vr360():
 
         cursor = conn.cursor()
 
-        # Execute the query with the search input used for multiple columns
-        cursor.execute(query, (search_pattern, search_pattern, search_pattern, search_pattern, search_pattern))
+        # Execute the query with the search input for [PropertyName] and [CategoryTitle]
+        cursor.execute(query, (search_pattern, search_pattern))
         properties = cursor.fetchall()
 
         if not properties:
